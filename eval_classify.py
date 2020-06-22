@@ -27,10 +27,12 @@ def evaluate_coco_weak(val, model, model_path, save_path, aug, threshold=0.05):
     dataset = dataset_all.split(val, config['dataset']['split_file'])
     dataset.set_transform(transform)
     
+    
     #model = ResNet50()
     #model.load_state_dict(torch.load(f"/data/unagi0/masaoka/resnet50_classify_rotate_flip_shear[{val}].pt"))
     model = eval(model)
     model.load_state_dict(torch.load(model_path))
+
     results = []
     image_ids = []
     for index in range(len(dataset)):

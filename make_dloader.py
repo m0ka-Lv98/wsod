@@ -58,7 +58,7 @@ def make_data(batchsize = None, iteration = None):
         transf.HWCToCHW()
         ])
 
-
+    #config['dataset']['val']
     dataset_val = dataset_all.split(config['dataset']['val'], config['dataset']['split_file'])
     dataset_val.set_transform(transform)
 

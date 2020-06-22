@@ -8,7 +8,6 @@ from torch.utils.data import Dataset
 
 
 class MedicalBboxDataset(Dataset):
-
     def __init__(self, annotation, data_path, transform=None):
         if isinstance(annotation, dict):
             self.coco = COCO()
