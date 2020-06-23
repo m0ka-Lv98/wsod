@@ -4,7 +4,7 @@ import torch
 from torchvision import transforms
 from torchvision.transforms import Compose
 from torch.utils.data import DataLoader
-from utils import bbox_collate, MixedRandomSampler,count_parameters_in_MB
+from utils import bbox_collate, MixedRandomSampler
 import transform as transf
 from dataset import MedicalBboxDataset
 

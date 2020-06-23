@@ -6,7 +6,7 @@ from torch.autograd import Function
 from torchvision import models, transforms
 from make_dloader import make_data
 from torch.utils.data import DataLoader
-from utils import bbox_collate, MixedRandomSampler,count_parameters_in_MB
+from utils import bbox_collate, MixedRandomSampler
 import transform as transf
 import yaml
 import json

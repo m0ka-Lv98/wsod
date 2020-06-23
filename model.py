@@ -6,8 +6,6 @@ from gradcam import *
 from losses import *
 import torch.utils.model_zoo as model_zoo
 from torchvision.ops import nms
-#from utils import BasicBlock, Bottleneck, BBoxTransform, ClipBoxes
-#from anchors import Anchors
 import losses
 import torch.nn.functional as F
 from torch.autograd import Variable
