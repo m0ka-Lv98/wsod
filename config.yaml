@@ -15,8 +15,8 @@ dataset:
    6: 2, 7: 2,
    8: 3
   }
- train: [4, 3, 0, 1]
- val: [2]
+ train: [2, 4, 0, 1]
+ val: [3]
 
 # input setting
 negative_ratio: 5

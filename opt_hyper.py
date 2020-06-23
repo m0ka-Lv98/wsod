@@ -46,6 +46,7 @@ def objective(trial):
     global metric_best
     EPOCH=3
     model = ResNet50()
+    #model.load_state_dict(torch.load(f"/data/unagi0/masaoka/resnet50_classify0.pt"))
     model.cuda()
 
     t = trial.suggest_discrete_uniform("p_w_t", 1, 10, 1)
@@ -81,7 +82,9 @@ def train_val(model, optimizer, criterion, epoch, d_train, d_val):
             del train_loss_list
             train_loss_list = []
         if (it+epoch*iteration)==1 or it%500==0:
+            model.eval()
             tp,fp,fn,tn = valid(model, d_val)
+            print(tp,fp,fn,tn)
             recall = tp/(tp+fn)
             specifity = tn/(fp+tn)
             metric = recall + specifity - 1
@@ -89,6 +92,7 @@ def train_val(model, optimizer, criterion, epoch, d_train, d_val):
             if metric.sum() > metric_best:
                 torch.save(model.state_dict(), f'/data/unagi0/masaoka/resnet50_classify{val}.pt')
                 metric_best = metric.sum()
+            model.train()
     return metric_best
 
 def valid(model, d_val):

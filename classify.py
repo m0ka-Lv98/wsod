@@ -25,13 +25,16 @@ seed = time.time()
 
 def main():
     dataloader_train, dataset_val, _ = make_data(batchsize=batchsize, iteration = iteration)
-    dataloader_val = torch.utils.data.DataLoader(dataset_val, batch_size=1, shuffle=False, 
+    dataloader_val = torch.utils.data.DataLoader(dataset_val, batch_size=40, shuffle=False, 
                                                 num_workers=4, collate_fn=bbox_collate)
     if model_opt == 0:
         model = ResNet50()
     elif model_opt == 1:
         model = Unet()
+    
+    model.load_state_dict(torch.load(f"/data/unagi0/masaoka/resnet50_classify4.pt"))
     model.cuda()
+
 
     pos_weight = torch.tensor([1.5,8.0,8.0]*batchsize).reshape(-1,3)
     criterion = nn.BCEWithLogitsLoss(pos_weight = pos_weight.cuda())
@@ -72,8 +75,11 @@ def train_val(model, optimizer, criterion, epoch, d_train, d_val):
             if metric.sum() > metric_best:
                 torch.save(model.state_dict(), f'/data/unagi0/masaoka/resnet50_classify{val}.pt')
                 metric_best = metric.sum()
+            model.train()
 
 def valid(model, d_val):
+    #model = ResNet50()
+    #model.load_state_dict(torch.load(f"/data/unagi0/masaoka/resnet50_classify4.pt"))
     model.eval()
     tpa , fpa, fna, tna = np.zeros(3), np.zeros(3), np.zeros(3), 0
     with torch.no_grad():
@@ -82,7 +88,7 @@ def valid(model, d_val):
             scores = torch.sigmoid(model(d['img'].cuda().float()))
             output = scores.cpu().data.numpy()
             output = np.where(output>0.5,1,0)
-            print(scores)
+            #print(scores)
             target, n, t, v, u = data2target(d, torch.from_numpy(output))
             target = target.cpu().data.numpy()
             gt = np.array([n,t,v,u])
