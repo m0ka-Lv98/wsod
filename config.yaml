@@ -15,8 +15,8 @@ dataset:
    6: 2, 7: 2,
    8: 3
   }
- train: [2, 4, 0, 1]
- val: [3]
+ train: [1,2,3,4]
+ val: [0]
 
 # input setting
 negative_ratio: 5
@@ -27,12 +27,11 @@ augmentation:
  gamma:
  - 0.95
  - 1.05
-inputsize: 256
+inputsize: 512
 
 # optimizer setting
-n_iteration: 50000
+n_iteration: 25000
 batchsize: 48
-c_batchsize: 48
 learning_rate: 0.0001
 warm_up: 200  # iteration
 lr_step:

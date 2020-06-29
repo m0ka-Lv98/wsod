@@ -9,14 +9,14 @@ import transform as transf
 from dataset import MedicalBboxDataset
 
 def make_data(batchsize = None, iteration = None):
-    
     config = yaml.safe_load(open('./config.yaml'))
     if batchsize == None: 
         batchsize = config["batchsize"] 
     if iteration == None:
         iteration = config["n_iteration"]
-
     dataset_means = json.load(open(config['dataset']['mean_file']))
+    
+    # train dataの取得
     transform = Compose([
         transf.Augmentation(config['augmentation']),
         transf.ToFixedSize([config['inputsize']] * 2),  # inputsize x inputsizeの画像に変換
@@ -51,15 +51,16 @@ def make_data(batchsize = None, iteration = None):
         num_workers=8,
         batch_sampler=batch_sampler,
         collate_fn=bbox_collate)
+    #ここまで
 
+    #test dataの取得
     transform = Compose([
         transf.ToFixedSize([config['inputsize']] * 2),  # inputsize x inputsizeの画像に変換
         transf.Normalize(dataset_means['mean'], dataset_means['std']),
         transf.HWCToCHW()
         ])
-
-    #config['dataset']['val']
     dataset_val = dataset_all.split(config['dataset']['val'], config['dataset']['split_file'])
     dataset_val.set_transform(transform)
+    #ここまで
 
     return dataloader_train, dataset_val, dataset_all

@@ -120,11 +120,11 @@ class MixedRandomSampler(torch.utils.data.sampler.Sampler):
 
         return choice
 
-def draw_graph(recall, specifity, seed, val, epoch, iteration, it, viz):
-    metric = recall + specifity - 1
+def draw_graph(recall, specificity, seed, val, epoch, iteration, it, viz):
+    metric = recall + specificity - 1
     viz.line(X = np.array([it + epoch*iteration]),Y = np.array([metric[0]]), \
                                 win=f'metric{seed}', name='torose', update='append',
-                                opts=dict(showlegend=True,title=f"Recall+Specifity-1 val{val}"))
+                                opts=dict(showlegend=True,title=f"Recall+Specificity-1 val{val}"))
     viz.line(X = np.array([it + epoch*iteration]),Y = np.array([metric[1]]), \
                                 win=f'metric{seed}', name='vascular', update='append',
                                 opts=dict(showlegend=True))
@@ -144,12 +144,12 @@ def draw_graph(recall, specifity, seed, val, epoch, iteration, it, viz):
     viz.line(X = np.array([it + epoch*iteration]),Y = np.array([recall[2]]), \
                                 win=f'rs2{seed}', name='recall', 
                                 update='append',opts=dict(showlegend=True, title=f"Ulcer{val}"))
-    viz.line(X = np.array([it + epoch*iteration]),Y = np.array([specifity[0]]), \
-                                win=f'rs0{seed}', name='specifity', 
+    viz.line(X = np.array([it + epoch*iteration]),Y = np.array([specificity[0]]), \
+                                win=f'rs0{seed}', name='specificity', 
                                 update='append',opts=dict(showlegend=True))
-    viz.line(X = np.array([it + epoch*iteration]),Y = np.array([specifity[1]]), \
-                                win=f'rs1{seed}', name='specifity',
+    viz.line(X = np.array([it + epoch*iteration]),Y = np.array([specificity[1]]), \
+                                win=f'rs1{seed}', name='specificity',
                                 update='append', opts=dict(showlegend=True))
-    viz.line(X = np.array([it + epoch*iteration]),Y = np.array([specifity[2]]), \
-                                win=f'rs2{seed}', name='specifity', 
+    viz.line(X = np.array([it + epoch*iteration]),Y = np.array([specificity[2]]), \
+                                win=f'rs2{seed}', name='specificity', 
                                 update='append',opts=dict(showlegend=True))

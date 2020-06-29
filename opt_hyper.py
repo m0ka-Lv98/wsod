@@ -14,7 +14,7 @@ from eval_classify import evaluate_coco_weak
 import time
 import optuna
 
-
+torch.multiprocessing.set_sharing_strategy('file_system')
 config = yaml.safe_load(open('./config.yaml'))
 val = config['dataset']['val'][0]
 batchsize = 100
@@ -26,7 +26,7 @@ seed = time.time()
 
 
 def main():
-    TRIAL_SIZE = 100
+    TRIAL_SIZE = 50
     study = optuna.create_study()
     study.optimize(objective, n_trials=TRIAL_SIZE)
 
@@ -86,9 +86,9 @@ def train_val(model, optimizer, criterion, epoch, d_train, d_val):
             tp,fp,fn,tn = valid(model, d_val)
             print(tp,fp,fn,tn)
             recall = tp/(tp+fn)
-            specifity = tn/(fp+tn)
-            metric = recall + specifity - 1
-            draw_graph(recall, specifity, seed, val, epoch, iteration, it, viz)
+            specificity = tn/(fp+tn)
+            metric = recall + specificity - 1
+            draw_graph(recall, specificity, seed, val, epoch, iteration, it, viz)
             if metric.sum() > metric_best:
                 torch.save(model.state_dict(), f'/data/unagi0/masaoka/resnet50_classify{val}.pt')
                 metric_best = metric.sum()
@@ -108,6 +108,9 @@ def valid(model, d_val):
             target = target.cpu().data.numpy()
             gt = np.array([n,t,v,u])
             tp, fp, fn, tn = calc_confusion_matrix(output, target, gt)
+            del target
+            del output
+            del d
             tpa += tp
             fpa += fp
             fna += fn
