@@ -7,7 +7,7 @@ import yaml
 from dataset import MedicalBboxDataset
 from model import ResNet50
 
-def evaluate_coco_weak(val, model, model_path, save_path, aug, threshold=0.05):
+def evaluate_coco_weak(val, model, model_path, save_path, aug=False, threshold=0.05):
     config = yaml.safe_load(open('./config.yaml'))
     dataset_means = json.load(open(config['dataset']['mean_file']))
     dataset_all = MedicalBboxDataset(

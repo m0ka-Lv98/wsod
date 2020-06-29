@@ -14,7 +14,7 @@ from make_dloader import make_data
 from utils import bbox_collate, data2target, calc_confusion_matrix, draw_graph
 from eval_classify import evaluate_coco_weak
 
-#torch.multiprocessing.set_sharing_strategy('file_system')
+torch.multiprocessing.set_sharing_strategy('file_system')
 config = yaml.safe_load(open('./config.yaml'))
 val = config['dataset']['val'][0]
 batchsize = config["batchsize"]
@@ -40,8 +40,8 @@ def main():
         train_val(model, optimizer, criterion, epoch, dataloader_train, dataloader_val)
 
     #モデルの最終評価
-    evaluate_coco_weak(val, model = "ResNet50()", model_path = f'/data/unagi0/masaoka/resnet50_classify{val}.pt',
-                        save_path = f"/data/unagi0/masaoka/resnet50_v{val}.json", aug = False)
+    evaluate_coco_weak(val, model = "ResNet50()", model_path = f'/data/unagi0/masaoka/wsod/model/resnet50_classify{val}.pt',
+                        save_path = f"/data/unagi0/masaoka/wsod/result_bbox/resnet50_v{val}.json")
     
 def train_val(model, optimizer, criterion, epoch, d_train, d_val):
     global metric_best
@@ -64,26 +64,25 @@ def train_val(model, optimizer, criterion, epoch, d_train, d_val):
             train_loss_list = []
         if (it+epoch*iteration)==0 or it%500==0:
             tp,fp,fn,tn = valid(model, d_val)
+            precision = tp/(tp+fp)
             recall = tp/(tp+fn)
             specifity = tn/(fp+tn)
-            print(tp,fp,fn,tn)
-            metric = recall + specifity - 1
-            draw_graph(recall, specifity, seed, val, epoch, iteration, it, viz)
+            metric = 2*recall*precision/(recall+precision)
+            draw_graph(recall, specifity, metric, seed, val, epoch, iteration, it, viz)
             if metric.sum() > metric_best:
-                torch.save(model.state_dict(), f'/data/unagi0/masaoka/resnet50_classify{val}.pt')
+                torch.save(model.state_dict(), f'/data/unagi0/masaoka/wsod/model/resnet50_classify{val}.pt')
                 metric_best = metric.sum()
             model.train()
 
 def valid(model, d_val):
     model.eval()
-    tpa , fpa, fna, tna = np.zeros(3), np.zeros(3), np.zeros(3), 0
+    tpa , fpa, fna, tna = np.zeros(3), np.zeros(3), np.zeros(3), np.zeros(3)
     with torch.no_grad():
         for i, d in enumerate(d_val):
-            print(f"validate {i}/{len(d_val)}")
+            print(f"validation {i}/{len(d_val)}")
             scores = torch.sigmoid(model(d['img'].cuda().float()))
             output = scores.cpu().data.numpy()
             output = np.where(output>0.5,1,0)
-            #print(scores)
             target, n, t, v, u = data2target(d, torch.from_numpy(output))
             target = target.cpu().data.numpy()
             gt = np.array([n,t,v,u])
@@ -92,7 +91,6 @@ def valid(model, d_val):
             fpa += fp
             fna += fn
             tna += tn
-            
     return tpa, fpa, fna, tna
     
     

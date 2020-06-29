@@ -37,7 +37,7 @@ def calc_confusion_matrix(output, target, gt):
     tp = (output * target).sum(axis = 0)
     fp = (output * (1 - target)).sum(axis = 0)
     fn = gt[1:] - tp
-    tn = np.all((1 - output) * (1 - target), axis = 1).sum()
+    tn = (1 - output) * (1 - target).sum(axis = 0)
     return tp, fp, fn, tn
 
 class InfiniteSampler:
@@ -120,11 +120,10 @@ class MixedRandomSampler(torch.utils.data.sampler.Sampler):
 
         return choice
 
-def draw_graph(recall, specificity, seed, val, epoch, iteration, it, viz):
-    metric = recall + specificity - 1
+def draw_graph(recall, specificity, metric, seed, val, epoch, iteration, it, viz):
     viz.line(X = np.array([it + epoch*iteration]),Y = np.array([metric[0]]), \
                                 win=f'metric{seed}', name='torose', update='append',
-                                opts=dict(showlegend=True,title=f"Recall+Specificity-1 val{val}"))
+                                opts=dict(showlegend=True,title=f"F-measure val{val}"))
     viz.line(X = np.array([it + epoch*iteration]),Y = np.array([metric[1]]), \
                                 win=f'metric{seed}', name='vascular', update='append',
                                 opts=dict(showlegend=True))

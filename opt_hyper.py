@@ -44,9 +44,8 @@ def get_optimizer(trial, model):
 
 def objective(trial):
     global metric_best
-    EPOCH=3
+    EPOCH=2
     model = ResNet50()
-    #model.load_state_dict(torch.load(f"/data/unagi0/masaoka/resnet50_classify0.pt"))
     model.cuda()
 
     t = trial.suggest_discrete_uniform("p_w_t", 1, 10, 1)
@@ -81,14 +80,14 @@ def train_val(model, optimizer, criterion, epoch, d_train, d_val):
                                 opts=dict(showlegend=True,title=f"Loss_val{val}"))
             del train_loss_list
             train_loss_list = []
-        if (it+epoch*iteration)==1 or it%500==0:
+        if (it+epoch*iteration)==0 or it%500==0:
             model.eval()
             tp,fp,fn,tn = valid(model, d_val)
-            print(tp,fp,fn,tn)
+            precision = tp/(tp+fp)
             recall = tp/(tp+fn)
-            specificity = tn/(fp+tn)
-            metric = recall + specificity - 1
-            draw_graph(recall, specificity, seed, val, epoch, iteration, it, viz)
+            specifity = tn/(fp+tn)
+            metric = 2*recall*precision/(recall+precision)
+            draw_graph(recall, specificity, metric, seed, val, epoch, iteration, it, viz)
             if metric.sum() > metric_best:
                 torch.save(model.state_dict(), f'/data/unagi0/masaoka/resnet50_classify{val}.pt')
                 metric_best = metric.sum()
@@ -97,7 +96,7 @@ def train_val(model, optimizer, criterion, epoch, d_train, d_val):
 
 def valid(model, d_val):
     model.eval()
-    tpa , fpa, fna, tna = np.zeros(3), np.zeros(3), np.zeros(3), 0
+    tpa , fpa, fna, tna = np.zeros(3), np.zeros(3), np.zeros(3), np.zeros(3)
     with torch.no_grad():
         for i, d in enumerate(d_val):
             print(f"validate {i}/{len(d_val)}", end = '\r')
