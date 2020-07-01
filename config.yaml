@@ -1,9 +1,9 @@
 # dataset
 dataset:
- image_root: "/data/unagi0/otani/dataset/capsule/capsule_crop"
- annotation_file: "/data/unagi0/otani/endoscopy/annotations/cleanup0906/capsule_cocoformat.json"
- split_file: "/data/unagi0/otani/endoscopy/annotations/cleanup0906/5-fold.json"
- mean_file: "/data/unagi0/otani/endoscopy/annotations/capsule_mean.json"
+ image_root: "/data/unagi0/masaoka/dataset/capsule/capsule_crop"
+ annotation_file: "/data/unagi0/masaoka/endoscopy/annotations/cleanup0906/capsule_cocoformat.json"
+ split_file: "/data/unagi0/masaoka/endoscopy/annotations/cleanup0906/5-fold.json"
+ mean_file: "/data/unagi0/masaoka/endoscopy/annotations/capsule_mean.json"
  class_integration:
   new: [
    {"id": 1, "name": "torose lesion"},
@@ -15,8 +15,8 @@ dataset:
    6: 2, 7: 2,
    8: 3
   }
- train: [0,2,3,4]
- val: [1]
+ train: [1]
+ val: [2,0,3,4]
 
 # input setting
 negative_ratio: 5

@@ -23,6 +23,7 @@ def make_data(batchsize = None, iteration = None):
         transf.Normalize(dataset_means['mean'], dataset_means['std']),
         transf.HWCToCHW()
         ])
+    
     dataset_all = MedicalBboxDataset(
         config['dataset']['annotation_file'],
         config['dataset']['image_root'])

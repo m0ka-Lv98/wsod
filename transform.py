@@ -98,7 +98,7 @@ class UnNormalize:
     
     def __call__(self, data):
         data = copy.copy(data)
-        data['img'] = data['img'].transpose(1,2,0)
+        data['img'] = data['img'].squeeze().permute(1,2,0).numpy()
         data['img'] = (data['img'] * self.std) + self.mean
         data['img'] = data['img'].astype(np.uint8)
         #data['img'] = data['img'].transpose(2,0,1)

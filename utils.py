@@ -37,7 +37,7 @@ def calc_confusion_matrix(output, target, gt):
     tp = (output * target).sum(axis = 0)
     fp = (output * (1 - target)).sum(axis = 0)
     fn = gt[1:] - tp
-    tn = (1 - output) * (1 - target).sum(axis = 0)
+    tn = ((1 - output) * (1 - target)).sum(axis = 0)
     return tp, fp, fn, tn
 
 class InfiniteSampler:
