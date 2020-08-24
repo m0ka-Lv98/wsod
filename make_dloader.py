@@ -8,12 +8,16 @@ from utils import bbox_collate, MixedRandomSampler
 import transform as transf
 from dataset import MedicalBboxDataset
 
-def make_data(batchsize = None, iteration = None):
+def make_data(batchsize = None, iteration = None, train = None, val = None):
     config = yaml.safe_load(open('./config.yaml'))
     if batchsize == None: 
         batchsize = config["batchsize"] 
     if iteration == None:
         iteration = config["n_iteration"]
+    if train == None:
+        train = config['dataset']['train']
+    if val == None:
+        val = config['dataset']['val']
     dataset_means = json.load(open(config['dataset']['mean_file']))
     
     # train dataの取得
@@ -32,7 +36,7 @@ def make_data(batchsize = None, iteration = None):
             config['dataset']['class_integration']['new'],
             config['dataset']['class_integration']['map'])
     
-    train_all = dataset_all.split(config['dataset']['train'], config['dataset']['split_file'])
+    train_all = dataset_all.split(train, config['dataset']['split_file'])
     train_all.set_transform(transform)
     train_normal = train_all.without_annotation()
     train_anomaly = train_all.with_annotation()
@@ -60,7 +64,7 @@ def make_data(batchsize = None, iteration = None):
         transf.Normalize(dataset_means['mean'], dataset_means['std']),
         transf.HWCToCHW()
         ])
-    dataset_val = dataset_all.split(config['dataset']['val'], config['dataset']['split_file'])
+    dataset_val = dataset_all.split(val, config['dataset']['split_file'])
     dataset_val.set_transform(transform)
     #ここまで
 

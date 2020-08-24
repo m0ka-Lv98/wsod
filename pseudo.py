@@ -168,7 +168,7 @@ class GradCam:
 
 model = ResNet50()
 model.cuda()
-model.load_state_dict(torch.load("/data/unagi0/masaoka/wsod/model/resnet50_classify0.pt"))
+model.load_state_dict(torch.load("/data/unagi0/masaoka/wsod/model/resnet50_classify1.pt"))
 
 
 grad_cam = GradCam(model=model.resnet50, feature_module=model.resnet50.layer4, target_layer_names=["2"], use_cuda=True)
@@ -191,16 +191,16 @@ unnormalize = transf.UnNormalize(dataset_means['mean'], dataset_means['std'])
 normalize = transf.Normalize(dataset_means['mean'], dataset_means['std'])
 
 
-# In[17]:
-
-
 class loss_r(nn.Module):
-    
     def __init__(self):
         super(loss_r, self).__init__()
         
-    def forward(self, i, target, rho = 1e-2):
-        loss = (target-i)**2
+    def forward(self, i, target, rho = 1e5):
+        i = i.cpu().data.numpy()
+        target = target.cpu().data.numpy()
+        i = np.where(i>0.4,i,0)
+        target = np.where(target>0.4,target,0)
+        loss = 255*abs(target-i)/i.sum()
         loss = loss.sum()
         return 0.5*loss*rho
     
@@ -208,8 +208,8 @@ class loss_l2(nn.Module):
     def __init__(self):
         super(loss_l2, self).__init__()
     
-    def forward(self, i, rho = 10):
-        loss = i**2
+    def forward(self, i, rho = 1e-4):
+        loss = (255*i)**2
         loss = loss.sum()
         return 0.5*rho*loss
     
@@ -218,18 +218,13 @@ class loss_tv(nn.Module):
     def __init__(self):
         super(loss_tv, self).__init__()
     
-    def forward(self, i, target, rho = 20):
+    def forward(self, i, rho = 3000):
         w, h = i.shape[0], i.shape[1]
-        lx = i[1:, :h-1] - target[:, :w-1, :h-1]
-        ly = i[:w-1, 1:] - target[:, :w-1, :h-1]
+        lx = i[1:, :h-1] - i[ :w-1, :h-1]
+        ly = i[:w-1, 1:] - i[:w-1, :h-1]
         lx, ly = abs(lx), abs(ly)
         loss = lx.sum()+ly.sum()
         return rho*loss
-
-
-# In[18]:
-
-
 class Loss(nn.Module):
     def __init__(self):
         super(Loss, self).__init__()
@@ -238,58 +233,33 @@ class Loss(nn.Module):
         self.r_loss = loss_r()
         
     def forward(self, i, t):
-        #l2loss = loss_l2(i)
-        #TVloss = loss_tv(i,t)
-        #r_loss = loss_r(i,t)
-       # s = time.time()
         l2loss = self.l2loss(i)
-        TVloss = self.TVloss(i,t)
+        TVloss = self.TVloss(i)
         r_loss = self.r_loss(i,t)
-        #e = time.time()
-        #print(f"calc_loss {e-s}")
         loss = l2loss + TVloss + r_loss
         return TVloss, r_loss, l2loss
-
-
-
-
 def converge_map(masks):
     #init 512,512 ndarray ; mask b,512,512 ndarray
-    init = masks[0]
     seq1 = iaa.Sequential([
                     iaa.Affine(
         rotate=iap.DiscreteUniform(-180,179)*(-1)
                     )])
     ia.seed(0)
     masks = seq1(images=masks)
+    
     mask_reconvert = torch.from_numpy(masks) #b,512,512 tensor
-    """for m in mask_reconvert:
-            plt.imshow(m.squeeze().numpy())
-            plt.show()"""
-    mp = torch.from_numpy(init).requires_grad_(True) #512,512 tensor
+    mp = mask_reconvert[0]
     calc_loss = Loss()
     calc_loss.cuda()
-    optimizer = optim.Adam([mp], lr = 5e-3)
     losses = []
-    for i in range(200):
-        optimizer.zero_grad()
-        loss, conf_loss, aux = calc_loss(mp.cuda(), mask_reconvert.cuda())
-        loss = loss/masks.shape[0]/(size**2)
-        conf_loss = conf_loss/masks.shape[0]/(size**2)
-        loss.backward()
-        optimizer.step()
-        losses.append(loss)
-    """plt.figure()
-    plt.plot(range(len(losses)), losses, linestyle = '-', color = 'red', label = 'loss')
-    plt.xlabel('times')
-    plt.ylabel('loss')
-    plt.legend()
-    plt.show()"""
+    TVloss, r_loss, l2 = calc_loss(mp.cuda(), mask_reconvert.cuda())
+    l2 = l2/(size**2)
+    TVloss = TVloss/(size**2)
+    r_loss = r_loss/masks.shape[0]/(size**2)
+    print(f"TV:{TVloss}, r:{r_loss}, l2:{l2}")
+    conf_loss = r_loss+TVloss
     mp = mp.data.numpy()
-    print(conf_loss)
-    return mp, 1/conf_loss #512,512 ndarray
-
-
+    return mp, conf_loss #512,512 ndarray
 def augmented_grad_cam(gcam, image):           #gcamはheatmapとlabelを出力するクラス
     #img.shape=B,C,H,W　tensor
     img = image.clone()
@@ -317,17 +287,13 @@ def augmented_grad_cam(gcam, image):           #gcamはheatmapとlabelを出力�
     
     return maps
     
-
-
 class Conf(nn.Module):
     def __init__(self):
         super(Conf, self).__init__()
     def forward(self, x):
         converged, conf = converge_map(x.numpy())
-        conf = conf/converged.sum()*converged.mean()
         return converged, conf
-
-
+    
 def calc_conf(masks):
     reconvert = torch.from_numpy(masks) 
     #信頼度の計算をするクラスConf
@@ -336,25 +302,25 @@ def calc_conf(masks):
     mask, conf = conf(reconvert)
     return mask, conf
 
-
-
 def high_conf_maps(gcam, image):           #gcamはheatmapとlabelを出力するクラス
     #img.shape=B,C,H,W　tensor
     img = image.clone()
     img = img.squeeze().numpy().transpose(1,2,0)  #512,512,3
-    b = 10
+    b = 20
     img = np.tile(img,(b,1,1,1)) #b,512,512,3
     seq = iaa.Sequential([
                     iaa.Affine(
         rotate=iap.DiscreteUniform(-180, 179)
                     )])
+    s = iaa.Sequential([iaa.Affine(scale=0.9)])
+    img = s(images = img)
     ia.seed(0)
     img = seq(images=img)
     img = torch.from_numpy(img)
     labels, masks = grad_cam(img.permute(0,3,1,2), None) #label [1,0,1] masks [(40,512,512), 0, (40,512,512)]
 
     maps = []
-    eps = 0.18
+    eps = 35
     for i, label in enumerate(labels):
         if label == 0:
             maps.append(0)
@@ -362,12 +328,44 @@ def high_conf_maps(gcam, image):           #gcamはheatmapとlabelを出力す�
         else:
             pseudo_map, conf = calc_conf(masks[i])
             print(f"conf:{conf}")
-            if conf > eps:
+            if conf < eps:
                 maps.append(pseudo_map)
             else:
                 maps.append(0)
     return maps
+def heatmap2box(heatmap, img=0, threshold = 0.5):
+    # img 512,512,3 ndarray,      heatmap  1,512,512 ndarray
+    if not isinstance(img, numbers.Number):
+        image = img.copy()
+    heatmap = thresh(heatmap, threshold = threshold)
+    heatmap = heatmap[0]
+    heatmap = np.uint8(255*heatmap)
+    label = cv2.connectedComponentsWithStats(heatmap)
+    n = label[0] - 1
+    data = np.delete(label[2], 0, 0)
+    boxes = torch.tensor([])
+    for i in range(n):
+    # 各オブジェクトの外接矩形を赤枠で表示
+        x0 = data[i][0]
+        y0 = data[i][1]
+        x1 = data[i][0] + data[i][2]
+        y1 = data[i][1] + data[i][3]
+        if boxes.shape[0] == 0:
+            boxes = torch.tensor([[x0,y0,x1,y1]])
+        else:
+            torch.cat((boxes, torch.tensor([[x0,y0,x1,y1]])), dim=0)
+        score = threshold
+        if not isinstance(img, numbers.Number):
+            cv2.rectangle(image, (x0, y0), (x1, y1), (255, 255, 0), thickness = 4)
+    #if not isinstance(img, numbers.Number):
+    #    plt.imshow(image)
+    #    plt.show()
+    return boxes, score
 
+def draw_caption(image, box, caption):
+    b = np.array(box).astype(int)
+    cv2.putText(image, caption, (b[0], b[1] - 10), cv2.FONT_HERSHEY_PLAIN, 1, (0, 0, 0), 2)
+    cv2.putText(image, caption, (b[0], b[1] - 10), cv2.FONT_HERSHEY_PLAIN, 1, (255, 255, 255), 1)
 
 
 #通常の評価　マスクなし

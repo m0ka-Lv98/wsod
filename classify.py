@@ -19,8 +19,9 @@ config = yaml.safe_load(open('./config.yaml'))
 val = config['dataset']['val'][0]
 batchsize = config["batchsize"]
 iteration = config["n_iteration"]
-epochs = 2
-metric_best = 0
+epochs = 1
+metric_best = np.array([0,0,0])
+metric_best_sum = 0
 seed = time.time()
 
 
@@ -39,11 +40,12 @@ def main():
     for epoch in range(epochs):
         train_val(model, optimizer, criterion, epoch, dataloader_val)
 
-    #モデルの最終評価
+    """#モデルの最終評価
     evaluate_coco_weak(val, model = "ResNet50()", model_path = f'/data/unagi0/masaoka/wsod/model/resnet50_classify{val}.pt',
                         save_path = f"/data/unagi0/masaoka/wsod/result_bbox/resnet50_v{val}.json")
-    
+    """    
 def train_val(model, optimizer, criterion, epoch, d_val):
+    global metric_best_sum
     global metric_best
     dataloader_train, _, _ = make_data()
     model.train()
@@ -63,16 +65,16 @@ def train_val(model, optimizer, criterion, epoch, d_val):
                                 opts=dict(showlegend=True,title=f"Loss_val{val}"))
             del train_loss_list
             train_loss_list = []
-        if (it+epoch*iteration)==1 or it%500==0:
+        if (it+epoch*iteration)==0 or it%500==0:
             tp,fp,fn,tn = valid(model, d_val)
             precision = tp/(tp+fp+1e-10)
             recall = tp/(tp+fn)
             specifity = tn/(fp+tn)
             metric = 2*recall*precision/(recall+precision+1e-10)
             draw_graph(recall, specifity, metric, seed, val, epoch, iteration, it, viz)
-            if metric.sum() > metric_best:
-                torch.save(model.state_dict(), f'/data/unagi0/masaoka/wsod/model/resnet50_classify{val}.pt')
-                metric_best = metric.sum()
+            torch.save(model.state_dict(), f'/data/unagi0/masaoka/wsod/model/resnet50_classify{val}_ulcer_{it}.pt')
+            metric_best = metric
+            metric_best_sum = metric.sum()
             model.train()
 
 def valid(model, d_val):
