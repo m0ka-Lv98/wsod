@@ -18,6 +18,8 @@ def make_data(batchsize = None, iteration = None, train = None, val = None):
         train = config['dataset']['train']
     if val == None:
         val = config['dataset']['val']
+    else:
+        val = [val]
     dataset_means = json.load(open(config['dataset']['mean_file']))
     
     # train dataの取得
@@ -64,8 +66,10 @@ def make_data(batchsize = None, iteration = None, train = None, val = None):
         transf.Normalize(dataset_means['mean'], dataset_means['std']),
         transf.HWCToCHW()
         ])
-    dataset_val = dataset_all.split(val, config['dataset']['split_file'])
-    dataset_val.set_transform(transform)
+    val_all = dataset_all.split(val, config['dataset']['split_file'])
+    val_all.set_transform(transform)
+    dataloader_val = DataLoader(val_all, batch_size=40, shuffle=False, 
+                                num_workers=4, collate_fn=bbox_collate)
     #ここまで
 
-    return dataloader_train, dataset_val, dataset_all
+    return dataloader_train, dataloader_val, train_all, val_all, dataset_all

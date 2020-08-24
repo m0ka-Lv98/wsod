@@ -2,6 +2,27 @@ import torch
 import torch.nn as nn
 import numpy as np
 
+def calc_iou(a, b):
+    a = a.cuda().float()
+    b= b.cuda().float()
+    area = (b[:, 2] - b[:, 0]) * (b[:, 3] - b[:, 1])
+
+    iw = torch.min(torch.unsqueeze(a[:, 2], dim=1), b[:, 2]) - torch.max(torch.unsqueeze(a[:, 0], 1), b[:, 0])
+    ih = torch.min(torch.unsqueeze(a[:, 3], dim=1), b[:, 3]) - torch.max(torch.unsqueeze(a[:, 1], 1), b[:, 1])
+
+    iw = torch.clamp(iw, min=0)
+    ih = torch.clamp(ih, min=0)
+
+    ua = torch.unsqueeze((a[:, 2] - a[:, 0]) * (a[:, 3] - a[:, 1]), dim=1) + area - iw * ih
+
+    ua = torch.clamp(ua, min=1e-8)
+
+    intersection = iw * ih
+
+    IoU = intersection / ua
+
+    return IoU
+
 def bbox_collate(batch):
     collated = {}
     
@@ -120,7 +141,7 @@ class MixedRandomSampler(torch.utils.data.sampler.Sampler):
 
         return choice
 
-def draw_graph(recall, specificity, metric, seed, val, epoch, iteration, it, viz):
+def draw_graph(precision, recall, specificity, metric, seed, val, epoch, iteration, it, viz):
     viz.line(X = np.array([it + epoch*iteration]),Y = np.array([metric[0]]), \
                                 win=f'metric{seed}', name='torose', update='append',
                                 opts=dict(showlegend=True,title=f"F-measure val{val}"))
@@ -135,20 +156,29 @@ def draw_graph(recall, specificity, metric, seed, val, epoch, iteration, it, viz
                                 opts=dict(showlegend=True))
 
     viz.line(X = np.array([it + epoch*iteration]),Y = np.array([recall[0]]), \
-                                win=f'rs0{seed}', name='recall', 
+                                win=f'prs0{seed}', name='recall', 
                                 update='append',opts=dict(showlegend=True, title=f"Torose{val}"))
     viz.line(X = np.array([it + epoch*iteration]),Y = np.array([recall[1]]), \
-                                win=f'rs1{seed}', name='recall',
+                                win=f'prs1{seed}', name='recall',
                                 update='append', opts=dict(showlegend=True, title=f"Vascular{val}"))
     viz.line(X = np.array([it + epoch*iteration]),Y = np.array([recall[2]]), \
-                                win=f'rs2{seed}', name='recall', 
+                                win=f'prs2{seed}', name='recall', 
                                 update='append',opts=dict(showlegend=True, title=f"Ulcer{val}"))
     viz.line(X = np.array([it + epoch*iteration]),Y = np.array([specificity[0]]), \
-                                win=f'rs0{seed}', name='specificity', 
+                                win=f'prs0{seed}', name='specificity', 
                                 update='append',opts=dict(showlegend=True))
     viz.line(X = np.array([it + epoch*iteration]),Y = np.array([specificity[1]]), \
-                                win=f'rs1{seed}', name='specificity',
+                                win=f'prs1{seed}', name='specificity',
                                 update='append', opts=dict(showlegend=True))
     viz.line(X = np.array([it + epoch*iteration]),Y = np.array([specificity[2]]), \
-                                win=f'rs2{seed}', name='specificity', 
+                                win=f'prs2{seed}', name='specificity', 
+                                update='append',opts=dict(showlegend=True))
+    viz.line(X = np.array([it + epoch*iteration]),Y = np.array([precision[0]]), \
+                                win=f'prs0{seed}', name='precision', 
+                                update='append',opts=dict(showlegend=True))
+    viz.line(X = np.array([it + epoch*iteration]),Y = np.array([precision[1]]), \
+                                win=f'prs1{seed}', name='precision',
+                                update='append', opts=dict(showlegend=True))
+    viz.line(X = np.array([it + epoch*iteration]),Y = np.array([precision[2]]), \
+                                win=f'prs2{seed}', name='precision', 
                                 update='append',opts=dict(showlegend=True))

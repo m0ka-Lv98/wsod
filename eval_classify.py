@@ -7,7 +7,7 @@ import yaml
 from dataset import MedicalBboxDataset
 from model import ResNet50
 
-def evaluate_coco_weak(val, model, model_path, save_path, aug=False, threshold=0.05):
+def evaluate_coco_weak(val, model, model_path, save_path, threshold=0.05):
     config = yaml.safe_load(open('./config.yaml'))
     dataset_means = json.load(open(config['dataset']['mean_file']))
     dataset_all = MedicalBboxDataset(
@@ -27,10 +27,8 @@ def evaluate_coco_weak(val, model, model_path, save_path, aug=False, threshold=0
     dataset = dataset_all.split(val, config['dataset']['split_file'])
     dataset.set_transform(transform)
     
-    
-    #model = ResNet50()
-    #model.load_state_dict(torch.load(f"/data/unagi0/masaoka/resnet50_classify_rotate_flip_shear[{val}].pt"))
     model = eval(model)
+    model.cuda()
     model.load_state_dict(torch.load(model_path))
 
     results = []
@@ -40,7 +38,7 @@ def evaluate_coco_weak(val, model, model_path, save_path, aug=False, threshold=0
         scale = 1   #data['scale']
         data['img'] = torch.from_numpy(data['img']) #.permute(2, 0, 1)
         # run network
-        scores, labels, boxes = model(data['img'].unsqueeze(0).cuda().float(), e=True, aug=aug)
+        scores, labels, boxes = model.gen_bbox(data['img'].unsqueeze(0).cuda().float())
         
         scores = scores.cpu()
         labels = labels.cpu()
@@ -99,6 +97,6 @@ def evaluate_coco_weak(val, model, model_path, save_path, aug=False, threshold=0
     return
 
 if __name__ == "__main__":
-    val = [4]
-    evaluate_coco_weak(val, model = "ResNet50()", model_path = f'/data/unagi0/masaoka/resnet50_classify{val}_epoch0_it500.pt',
-                        save_path = f"/data/unagi0/masaoka/resnet50_v{val}.json", aug = False)
+    val = 0
+    evaluate_coco_weak(val, model = "ResNet50()", model_path = f'/data/unagi0/masaoka/wsod/model/resnet50_classify{val}.pt',
+                        save_path = f"/data/unagi0/masaoka/wsod/result_bbox/resnet50_v{val}.json")

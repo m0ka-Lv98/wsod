@@ -11,11 +11,12 @@ import time
 
 from model import ResNet50
 from make_dloader import make_data
-from utils import bbox_collate, data2target, calc_confusion_matrix, draw_graph
+from utils import data2target, calc_confusion_matrix, draw_graph
 from eval_classify import evaluate_coco_weak
 
 torch.multiprocessing.set_sharing_strategy('file_system')
 config = yaml.safe_load(open('./config.yaml'))
+train = config['dataset']['train']
 val = config['dataset']['val'][0]
 batchsize = config["batchsize"]
 iteration = config["n_iteration"]
@@ -26,9 +27,8 @@ seed = time.time()
 
 
 def main():
-    dataloader_train, dataset_val, _ = make_data()
-    dataloader_val = torch.utils.data.DataLoader(dataset_val, batch_size=40, shuffle=False, 
-                                                num_workers=4, collate_fn=bbox_collate)
+    dl_t, dl_v, _, _, _ = make_data(batchsize = batchsize, iteration = iteration, 
+                                train = train, val = val)
     model = ResNet50()
     model.cuda()
 
@@ -38,19 +38,18 @@ def main():
 
     #訓練
     for epoch in range(epochs):
-        train_val(model, optimizer, criterion, epoch, dataloader_val)
+        train_val(model, optimizer, criterion, epoch, dl_t, dl_v)
 
     """#モデルの最終評価
     evaluate_coco_weak(val, model = "ResNet50()", model_path = f'/data/unagi0/masaoka/wsod/model/resnet50_classify{val}.pt',
                         save_path = f"/data/unagi0/masaoka/wsod/result_bbox/resnet50_v{val}.json")
     """    
-def train_val(model, optimizer, criterion, epoch, d_val):
+def train_val(model, optimizer, criterion, epoch, dl_t, dl_v):
     global metric_best_sum
     global metric_best
-    dataloader_train, _, _ = make_data()
     model.train()
     train_loss_list = []
-    for it, data in enumerate(dataloader_train, 1):
+    for it, data in enumerate(dl_t, 1):
         optimizer.zero_grad()
         output = model(data['img'].cuda().float())
         target, n,t,v,u = data2target(data, output)
@@ -58,31 +57,31 @@ def train_val(model, optimizer, criterion, epoch, d_val):
         loss.backward()
         optimizer.step()
         train_loss_list.append(loss.cpu().data.numpy())
-        print(f'{epoch}epoch,{it}/{len(dataloader_train)}, loss {loss.data:.4f}', end='\r')
+        print(f'{epoch}epoch,{it}/{len(dl_t)}, loss {loss.data:.4f}', end='\r')
         if it%10==0:
             viz.line(X = np.array([it + epoch*iteration]),Y = np.array([sum(train_loss_list)/len(train_loss_list)]), 
                                 win=f"t_loss{seed}_{val}", name='train_loss', update='append',
                                 opts=dict(showlegend=True,title=f"Loss_val{val}"))
             del train_loss_list
             train_loss_list = []
-        if (it+epoch*iteration)==0 or it%500==0:
-            tp,fp,fn,tn = valid(model, d_val)
+        if it%500==0:
+            tp,fp,fn,tn = valid(model, dl_v)
             precision = tp/(tp+fp+1e-10)
             recall = tp/(tp+fn)
             specifity = tn/(fp+tn)
             metric = 2*recall*precision/(recall+precision+1e-10)
-            draw_graph(recall, specifity, metric, seed, val, epoch, iteration, it, viz)
-            torch.save(model.state_dict(), f'/data/unagi0/masaoka/wsod/model/resnet50_classify{val}_ulcer_{it}.pt')
-            metric_best = metric
-            metric_best_sum = metric.sum()
+            draw_graph(precision, recall, specifity, metric, seed, val, epoch, iteration, it, viz)
+            torch.save(model.state_dict(), f'/data/unagi0/masaoka/wsod/model/resnet50_cam{val}_{it}.pt')
+            metric_best = metric if metric.sum() > metric_best.sum() else metric_best
+            metric_best_sum = metric_best.sum()
             model.train()
 
-def valid(model, d_val):
+def valid(model, dl_v):
     model.eval()
     tpa , fpa, fna, tna = np.zeros(3), np.zeros(3), np.zeros(3), np.zeros(3)
     with torch.no_grad():
-        for i, d in enumerate(d_val):
-            print(f'validation {i}/{len(d_val)}', end='\r')
+        for i, d in enumerate(dl_v):
+            print(f'validation {i}/{len(dl_v)}', end='\r')
             scores = torch.sigmoid(model(d['img'].cuda().float()))
             output = scores.cpu().data.numpy()
             output = np.where(output>0.5,1,0)
