@@ -7,34 +7,46 @@ import json
 import yaml
 import numpy as np
 from model import ResNet50
+from efficientnet import efficientnet_b0,efficientnet_b1,efficientnet_b2,efficientnet_b3
 import yaml
 from visdom import Visdom
 from utils import bbox_collate, data2target, calc_confusion_matrix, draw_graph
 from eval_classify import evaluate_coco_weak
 import time
 import optuna
+import sys 
+import os 
+import logging
+
 
 torch.multiprocessing.set_sharing_strategy('file_system')
 config = yaml.safe_load(open('./config.yaml'))
 val = config['dataset']['val'][0]
-batchsize = 100
+batchsize = 16
 iteration = 2000
 epochs = 10
 model_opt = 0
-metric_best = 1
 seed = time.time()
+log_format = '%(asctime)s %(message)s'
+logging.basicConfig(stream=sys.stdout, level=logging.INFO,
+    format=log_format)
+fh = logging.FileHandler(os.path.join('optuna', '512log_res50.txt'))
+fh.setFormatter(logging.Formatter(log_format))
+logging.getLogger().addHandler(fh)
 
 
 def main():
-    TRIAL_SIZE = 50
+    TRIAL_SIZE = 20
     study = optuna.create_study()
     study.optimize(objective, n_trials=TRIAL_SIZE)
+    for trial in study.get_trials():
+        print(f"{trial.number}: {trial.value:.3f} ({trial.params})")
+    
+    logging.info(f'best value: {study.best_value}')
+    logging.info(f'best params: {study.best_params}')
+    
+    
 
-    evaluate_coco_weak(val, model = "ResNet50()", model_path = f'/data/unagi0/masaoka/resnet50_classify{val}.pt',
-                        save_path = f"/data/unagi0/masaoka/resnet50_v{val}.json", aug = False)
-
-    study.best_params
-    study.best_value
     
 def get_optimizer(trial, model):
     adam_lr = trial.suggest_loguniform('adam_lr', 1e-5, 1e-1)
@@ -43,26 +55,27 @@ def get_optimizer(trial, model):
     return optimizer
 
 def objective(trial):
-    global metric_best
-    EPOCH=2
+    best_score = 1
+    EPOCH=4
     model = ResNet50()
     model.cuda()
 
-    t = trial.suggest_discrete_uniform("p_w_t", 1, 10, 1)
-    v = trial.suggest_discrete_uniform("p_w_v", 5, 19, 2)
-    u = trial.suggest_discrete_uniform("p_w_u", 5, 19, 2)
+    t = trial.suggest_discrete_uniform("p_w_t", 1.0, 19.0, 2.0)
+    v = trial.suggest_discrete_uniform("p_w_v", 1.0, 19.0, 2.0)
+    u = trial.suggest_discrete_uniform("p_w_u", 1.0, 19.0, 2.0)
     optimizer = get_optimizer(trial, model)
-
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size = 2, gamma = 0.1)
     pos_weight = torch.tensor([t,u,v]*batchsize).reshape(-1,3)
     criterion = nn.BCEWithLogitsLoss(pos_weight = pos_weight.cuda().float())
     for step in range(EPOCH):
         metric = -train_val(model, optimizer, criterion, step, dataloader_train, dataloader_val)
-        if metric < metric_best:
-            metric_best = metric
-    return metric_best
+        scheduler.step()
+        if metric < best_score:
+            best_score = metric
+    return best_score
 
 def train_val(model, optimizer, criterion, epoch, d_train, d_val):
-    global metric_best
+    metric_best = -1
     model.train()
     train_loss_list = []
     for it, data in enumerate(d_train, 1):
@@ -80,18 +93,19 @@ def train_val(model, optimizer, criterion, epoch, d_train, d_val):
                                 opts=dict(showlegend=True,title=f"Loss_val{val}"))
             del train_loss_list
             train_loss_list = []
-        if (it+epoch*iteration)==0 or it%500==0:
+        if it%500==0:
             model.eval()
             tp,fp,fn,tn = valid(model, d_val)
-            precision = tp/(tp+fp)
-            recall = tp/(tp+fn)
-            specifity = tn/(fp+tn)
-            metric = 2*recall*precision/(recall+precision)
-            draw_graph(recall, specificity, metric, seed, val, epoch, iteration, it, viz)
+            precision = tp/(tp+fp+1e-10)
+            recall = tp/(tp+fn+1e-10)
+            specificity = tn/(fp+tn+1e-10)
+            metric = 2*recall*precision/(recall+precision+1e-10)
+            draw_graph(precision, recall, specificity, metric, seed, val, epoch, iteration, it, viz)
             if metric.sum() > metric_best:
-                torch.save(model.state_dict(), f'/data/unagi0/masaoka/resnet50_classify{val}.pt')
+                #torch.save(model.state_dict(), f'/data/unagi0/masaoka/resnet50_classify{val}.pt')
                 metric_best = metric.sum()
             model.train()
+        
     return metric_best
 
 def valid(model, d_val):
@@ -121,7 +135,5 @@ def valid(model, d_val):
 if __name__ == "__main__":
     viz = Visdom(port=3289)
     optuna.logging.disable_default_handler()
-    dataloader_train, dataset_val, _ = make_data(batchsize=batchsize, iteration = iteration)
-    dataloader_val = torch.utils.data.DataLoader(dataset_val, batch_size=40, shuffle=False, 
-                                                num_workers=4, collate_fn=bbox_collate)
+    dataloader_train, dataloader_val, _, _, _ = make_data(batchsize=batchsize, iteration=iteration)
     main()

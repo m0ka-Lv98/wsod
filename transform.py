@@ -1,7 +1,6 @@
 import copy
 import numpy as np
 import cv2
-
 from imgaug import BoundingBoxesOnImage
 from imgaug import augmenters as iaa
 from imgaug import parameters as iap
