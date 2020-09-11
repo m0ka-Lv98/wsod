@@ -55,6 +55,40 @@ def heatmap2box(heatmap, img=0, threshold = 0.5):
         plt.show()
     return boxes, score
 
+class Cam(nn.Module):
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+        self.extractor = model.extractor #modelで定義しておく
+        self.w = model.fc_w()   #modelで定義しておく
+    def forward(self, input):
+        shape = input.shape[2:]
+        self.model.eval()
+        fmap = self.extractor(input)
+        fmap = fmap.data.cpu().numpy()[0]
+        w = self.w.data.cpu().numpy()
+        output = self.model(input)
+        output = torch.sigmoid(output)
+        output = output.data.cpu().numpy()
+        output = np.where(output > 0.5, 1, 0)[0]
+        maps = []
+        w = w[:, :, np.newaxis, np.newaxis]
+        for c_id in range(self.model.num_classes):
+            if output[c_id] == 0:
+                maps.append(0)
+                continue
+            temp = fmap*w[c_id] #2048,16,16
+            temp = temp.sum(axis=0)
+            temp = cv2.resize(temp, shape)
+            temp = np.where(temp > 0, temp, 0)
+            temp = temp/temp.max()
+            
+            maps.append(temp)
+        return output, maps
+
+
+
+"""
 class CAM(nn.Module):
     def __init__(self, tap = False):
         super().__init__()
@@ -83,9 +117,9 @@ class CAM(nn.Module):
         return x
     
     def cam(self, x, nwc = False):
-        #x 1,2048,512,512
-        shape = x.shape[2:] #input shape 512,512
+        #x 1,3,512,512
         self.model.eval()
+        shape = x.shape[2:] #input shape 512,512
         output = self.model(x)
         output = torch.sigmoid(output)
         output = output.data.cpu().numpy()
@@ -100,8 +134,10 @@ class CAM(nn.Module):
             break
         x = x[0].data.cpu().numpy() #2048,16,16
         w = weights.data.cpu().numpy() #3,2048
+
         if nwc:
             w = np.where(w > 0, w, 0)
+
         w = w[:, :, np.newaxis, np.newaxis]
         for c_id in range(self.num_class):
             if output[c_id] == 0:
@@ -154,6 +190,6 @@ class CAM(nn.Module):
                     classification = torch.cat((classification, c))
 
         return scores, classification.int(), boxes
-
+"""
 
 

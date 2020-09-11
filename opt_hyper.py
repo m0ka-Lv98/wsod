@@ -6,7 +6,7 @@ from make_dloader import make_data
 import json
 import yaml
 import numpy as np
-from model import ResNet50
+from model import ResNet50, EfficientNetb0, EfficientNetb1
 from efficientnet import efficientnet_b0,efficientnet_b1,efficientnet_b2,efficientnet_b3
 import yaml
 from visdom import Visdom
@@ -16,58 +16,69 @@ import time
 import optuna
 import sys 
 import os 
+import argparse
 import logging
-
 
 torch.multiprocessing.set_sharing_strategy('file_system')
 config = yaml.safe_load(open('./config.yaml'))
-val = config['dataset']['val'][0]
-batchsize = 16
-iteration = 2000
-epochs = 10
+parser = argparse.ArgumentParser()
+parser.add_argument('--train', nargs="*", type=int, default=config['dataset']['train'])
+parser.add_argument('--val', type=int, default=config['dataset']['val'][0])
+parser.add_argument('--batchsize', type=int, default=config['batchsize'])
+parser.add_argument('--iteration', type=int, default=config['n_iteration'])
+parser.add_argument('--epochs', type=int, default=2)
+parser.add_argument('--tap', action='store_true', default=False)
+parser.add_argument('--trialsize', type=int, default=20)
+parser.add_argument('--model', type=str, default="ResNet50")
+args = parser.parse_args()
+
 model_opt = 0
+step = 1
 seed = time.time()
 log_format = '%(asctime)s %(message)s'
 logging.basicConfig(stream=sys.stdout, level=logging.INFO,
     format=log_format)
-fh = logging.FileHandler(os.path.join('optuna', '512log_res50.txt'))
+fh = logging.FileHandler(os.path.join('optuna', f'{args.model}.txt'))
 fh.setFormatter(logging.Formatter(log_format))
 logging.getLogger().addHandler(fh)
 
 
 def main():
-    TRIAL_SIZE = 20
+    logging.info(f'args:{args}')
+    TRIAL_SIZE = args.trialsize
     study = optuna.create_study()
     study.optimize(objective, n_trials=TRIAL_SIZE)
     for trial in study.get_trials():
-        print(f"{trial.number}: {trial.value:.3f} ({trial.params})")
+        logging.info(f'{trial.number}: {trial.value:.3f} ({trial.params})')
     
     logging.info(f'best value: {study.best_value}')
     logging.info(f'best params: {study.best_params}')
     
-    
-
-    
 def get_optimizer(trial, model):
-    adam_lr = trial.suggest_loguniform('adam_lr', 1e-5, 1e-1)
-    weight_decay = trial.suggest_loguniform('weight_decay', 1e-10, 1e-3)
+    adam_lr = trial.suggest_loguniform('lr', 1e-7, 1e-3)
+    weight_decay = trial.suggest_loguniform('weightdecay', 1e-11, 1e-8)
     optimizer = optim.Adam(model.parameters(), lr=adam_lr, weight_decay=weight_decay)
     return optimizer
 
 def objective(trial):
+    global step
+    print(f'{step}/{args.trialsize}')
+    step += 1
     best_score = 1
-    EPOCH=4
-    model = ResNet50()
+    EPOCHS=args.epochs
+    model = eval(args.model + "()")
+    model = nn.DataParallel(model)
+    model.tap = args.tap
     model.cuda()
 
-    t = trial.suggest_discrete_uniform("p_w_t", 1.0, 19.0, 2.0)
-    v = trial.suggest_discrete_uniform("p_w_v", 1.0, 19.0, 2.0)
-    u = trial.suggest_discrete_uniform("p_w_u", 1.0, 19.0, 2.0)
+    t = trial.suggest_discrete_uniform("p_w_t", 5.0, 15.0, 1.0)
+    v = trial.suggest_discrete_uniform("p_w_v", 5.0, 15.0, 1.0)
+    u = trial.suggest_discrete_uniform("p_w_u", 1.0, 15.0, 1.0)
     optimizer = get_optimizer(trial, model)
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size = 2, gamma = 0.1)
-    pos_weight = torch.tensor([t,u,v]*batchsize).reshape(-1,3)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size = 1, gamma = 0.1)
+    pos_weight = torch.tensor([t,u,v]*args.batchsize).reshape(-1,3)
     criterion = nn.BCEWithLogitsLoss(pos_weight = pos_weight.cuda().float())
-    for step in range(EPOCH):
+    for step in range(EPOCHS):
         metric = -train_val(model, optimizer, criterion, step, dataloader_train, dataloader_val)
         scheduler.step()
         if metric < best_score:
@@ -88,9 +99,9 @@ def train_val(model, optimizer, criterion, epoch, d_train, d_val):
         train_loss_list.append(loss.cpu().data.numpy())
         print(f'{epoch}epoch,{it}/{len(d_train)}, loss {loss.data:.4f}', end='\r')
         if it%10==0:
-            viz.line(X = np.array([it + epoch*iteration]),Y = np.array([sum(train_loss_list)/len(train_loss_list)]), 
-                                win=f"t_loss{seed}_{val}", name='train_loss', update='append',
-                                opts=dict(showlegend=True,title=f"Loss_val{val}"))
+            viz.line(X = np.array([it + epoch*args.iteration]),Y = np.array([sum(train_loss_list)/len(train_loss_list)]), 
+                                win=f"t_loss{seed}_{args.val}", name='train_loss', update='append',
+                                opts=dict(showlegend=True,title=f"Loss_val{args.val}"))
             del train_loss_list
             train_loss_list = []
         if it%500==0:
@@ -100,10 +111,10 @@ def train_val(model, optimizer, criterion, epoch, d_train, d_val):
             recall = tp/(tp+fn+1e-10)
             specificity = tn/(fp+tn+1e-10)
             metric = 2*recall*precision/(recall+precision+1e-10)
-            draw_graph(precision, recall, specificity, metric, seed, val, epoch, iteration, it, viz)
-            if metric.sum() > metric_best:
-                #torch.save(model.state_dict(), f'/data/unagi0/masaoka/resnet50_classify{val}.pt')
-                metric_best = metric.sum()
+            draw_graph(precision, recall, specificity, metric, seed, args.val, epoch, args.iteration, it, viz)
+            if metric.sum()/3 > metric_best:
+                #torch.save(model.state_dict(), f'/data/unagi0/masaoka/resnet50_classify{args.val}.pt')
+                metric_best = metric.sum()/3
             model.train()
         
     return metric_best
@@ -135,5 +146,5 @@ def valid(model, d_val):
 if __name__ == "__main__":
     viz = Visdom(port=3289)
     optuna.logging.disable_default_handler()
-    dataloader_train, dataloader_val, _, _, _ = make_data(batchsize=batchsize, iteration=iteration)
+    dataloader_train, dataloader_val, _, _, _ = make_data(batchsize=args.batchsize, iteration=args.iteration)
     main()

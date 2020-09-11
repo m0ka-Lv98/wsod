@@ -10,8 +10,7 @@ from visdom import Visdom
 import time
 import argparse
 
-from model import ResNet50, ResNet101
-from efficientnet import efficientnet_b0,efficientnet_b1,efficientnet_b2,efficientnet_b3
+from model import ResNet50, ResNet101, EfficientNetb0, EfficientNetb1
 from make_dloader import make_data
 from utils import data2target, calc_confusion_matrix, draw_graph
 from eval_classify import evaluate_coco_weak
@@ -26,8 +25,9 @@ parser.add_argument('--batchsize', type=int, default=config['batchsize'])
 parser.add_argument('--iteration', type=int, default=config['n_iteration'])
 parser.add_argument('--epochs', type=int, default=10)
 parser.add_argument('--tap', action='store_true', default=False)
-parser.add_argument('--lr', type=float, default=1e-3)
-parser.add_argument('--weight_decay', type=float, default=1e-5)
+parser.add_argument('--lr', type=float, default=3e-5)
+parser.add_argument('--weightdecay', type=float, default=6e-10)
+parser.add_argument('--model', type=str, default="ResNet50")
 args = parser.parse_args()
 
 metric_best = np.array([0,0,0])
@@ -38,25 +38,28 @@ seed = time.time()
 def main():
     dl_t, dl_v, _, _, _ = make_data(batchsize = args.batchsize, iteration = args.iteration, 
                                 train = args.train, val = args.val)
-    model = ResNet50(tap = args.tap)
-    #model = efficientnet_b0()
+    model = eval(args.model + "()")
+    model.tap = args.tap
+    model = torch.nn.DataParallel(model) # make parallel
     model.cuda()
+    torch.backends.cudnn.benchmark = True
 
-    pos_weight = torch.tensor([18.0,18.0,18.0]*args.batchsize).reshape(-1,3)
+    pos_weight = torch.tensor([5.0,12.0,6.0]*args.batchsize).reshape(-1,3)
     criterion = nn.BCEWithLogitsLoss(pos_weight = pos_weight.cuda())
-    optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay = args.weight_decay)
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size = 2, gamma = 0.1)
+    optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay = args.weightdecay)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size = 1, gamma = 0.1)
 
     #訓練
     for epoch in range(args.epochs):
         train_val(model, optimizer, criterion, epoch, dl_t, dl_v)
         scheduler.step()
+    
+    torch.save(model.module.state_dict(), f'/data/unagi0/masaoka/wsod/model/cam/{args.model}_{args.val}.pt')
         
-
-    """#モデルの最終評価
-    evaluate_coco_weak(val, model = "ResNet50()", model_path = f'/data/unagi0/masaoka/wsod/model/resnet50_classify{val}.pt',
-                        save_path = f"/data/unagi0/masaoka/wsod/result_bbox/resnet50_v{val}.json")
-    """    
+    #モデルの最終評価
+    evaluate_coco_weak(args.val, model = args.model, model_path = f'/data/unagi0/masaoka/wsod/model/cam/{args.model}_{args.val}.pt',
+                        save_path = f"/data/unagi0/masaoka/wsod/result_bbox/cam/{args.model}_{args.val}.json")
+       
 def train_val(model, optimizer, criterion, epoch, dl_t, dl_v):
     global metric_best_sum
     global metric_best
@@ -84,7 +87,7 @@ def train_val(model, optimizer, criterion, epoch, dl_t, dl_v):
             specificity = tn/(fp+tn)
             metric = 2*recall*precision/(recall+precision+1e-10)
             draw_graph(precision, recall, specificity, metric, seed, args.val, epoch, args.iteration, it, viz)
-            torch.save(model.state_dict(), f'/data/unagi0/masaoka/wsod/model/cam/resnet50_cam{args.val}_{it}.pt')
+            torch.save(model.module.state_dict(), f'/data/unagi0/masaoka/wsod/model/cam/{args.model}_{args.val}_{epoch*args.iteration+it}.pt')
             metric_best = metric if metric.sum() > metric_best.sum() else metric_best
             metric_best_sum = metric_best.sum()
             model.train()

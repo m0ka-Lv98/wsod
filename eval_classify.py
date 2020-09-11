@@ -5,7 +5,7 @@ import transform as transf
 from torchvision.transforms import Compose
 import yaml
 from dataset import MedicalBboxDataset
-from model import ResNet50
+from model import *
 
 def evaluate_coco_weak(val, model, model_path, save_path, threshold=0.05):
     config = yaml.safe_load(open('./config.yaml'))
@@ -27,9 +27,9 @@ def evaluate_coco_weak(val, model, model_path, save_path, threshold=0.05):
     dataset = dataset_all.split(val, config['dataset']['split_file'])
     dataset.set_transform(transform)
     
-    model = eval(model)
-    model.cuda()
+    model = eval(model + '()')
     model.load_state_dict(torch.load(model_path))
+    model.cuda()
 
     results = []
     image_ids = []
@@ -98,5 +98,7 @@ def evaluate_coco_weak(val, model, model_path, save_path, threshold=0.05):
 
 if __name__ == "__main__":
     val = 0
-    evaluate_coco_weak(val, model = "ResNet50()", model_path = f'/data/unagi0/masaoka/wsod/model/resnet50_classify{val}.pt',
-                        save_path = f"/data/unagi0/masaoka/wsod/result_bbox/resnet50_v{val}.json")
+    it = 1000
+    model = 'ResNet50'
+    evaluate_coco_weak(val, model = model, model_path = f'/data/unagi0/masaoka/wsod/model/cam/{model}_{val}_{it}.pt',
+                        save_path = f"/data/unagi0/masaoka/wsod/result_bbox/cam/{model}_{val}_{it}.json")
