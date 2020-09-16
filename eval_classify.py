@@ -6,6 +6,7 @@ from torchvision.transforms import Compose
 import yaml
 from dataset import MedicalBboxDataset
 from model import *
+from cam import Cam, Gen_bbox
 
 def evaluate_coco_weak(val, model, model_path, save_path, threshold=0.05):
     config = yaml.safe_load(open('./config.yaml'))
@@ -24,13 +25,15 @@ def evaluate_coco_weak(val, model, model_path, save_path, threshold=0.05):
         transf.HWCToCHW()
         ])
 
-    dataset = dataset_all.split(val, config['dataset']['split_file'])
+    train = [i for i in range(5) if i!=val]
+    dataset = dataset_all.split(train, config['dataset']['split_file']) #訓練データで可視化
     dataset.set_transform(transform)
     
     model = eval(model + '()')
     model.load_state_dict(torch.load(model_path))
     model.cuda()
-
+    cam = Cam(model)
+    gen = Gen_bbox(cam)
     results = []
     image_ids = []
     for index in range(len(dataset)):
@@ -38,7 +41,7 @@ def evaluate_coco_weak(val, model, model_path, save_path, threshold=0.05):
         scale = 1   #data['scale']
         data['img'] = torch.from_numpy(data['img']) #.permute(2, 0, 1)
         # run network
-        scores, labels, boxes = model.gen_bbox(data['img'].unsqueeze(0).cuda().float())
+        scores, labels, boxes = gen(data['img'].unsqueeze(0).cuda().float())
         
         scores = scores.cpu()
         labels = labels.cpu()
@@ -100,5 +103,5 @@ if __name__ == "__main__":
     val = 0
     it = 1000
     model = 'ResNet50'
-    evaluate_coco_weak(val, model = model, model_path = f'/data/unagi0/masaoka/wsod/model/cam/{model}_{val}_{it}.pt',
-                        save_path = f"/data/unagi0/masaoka/wsod/result_bbox/cam/{model}_{val}_{it}.json")
+    evaluate_coco_weak(val, model = model, model_path = f'/data/unagi0/masaoka/wsod/model/cam/{model}_{val}.pt',
+                        save_path = f"/data/unagi0/masaoka/wsod/result_bbox/cam/{model}_{val}_train.json")

@@ -61,9 +61,9 @@ class Cam(nn.Module):
         self.model = model
         self.extractor = model.extractor #modelで定義しておく
         self.w = model.fc_w()   #modelで定義しておく
+        self.model.eval()
     def forward(self, input):
         shape = input.shape[2:]
-        self.model.eval()
         fmap = self.extractor(input)
         fmap = fmap.data.cpu().numpy()[0]
         w = self.w.data.cpu().numpy()
@@ -82,9 +82,51 @@ class Cam(nn.Module):
             temp = cv2.resize(temp, shape)
             temp = np.where(temp > 0, temp, 0)
             temp = temp/temp.max()
-            
             maps.append(temp)
         return output, maps
+
+class Gen_bbox:
+    def __init__(self, cam):
+        self.cam = cam
+    
+    def __call__(self, input):
+        #input 1,3,512,512
+        _, masks = self.cam(input)
+        boxes = torch.tensor([])
+        scores = torch.tensor([])
+        classification = torch.tensor([])
+        for threshold in reversed(range(11)):
+            threshold = threshold/10
+            for num, mask in enumerate(masks):
+                if isinstance(mask,numbers.Number):
+                    continue
+                #mask 512,512
+                #print(threshold)
+                box, score = heatmap2box(mask, threshold = threshold)
+                #print(box)
+                if box.shape[0] == 0:
+                    continue
+                if boxes.shape[0] == 0:
+                    boxes = box
+                else:
+                    boxes = torch.cat((boxes,box), dim = 0)
+                if scores.shape[0] == 0:
+                    scores = torch.Tensor(len(box))
+                    scores.fill_(score)
+
+                else:
+                    s = torch.Tensor(len(box))
+                    s.fill_(score)
+                    scores = torch.cat((scores, s))
+                if classification.shape[0] == 0:
+                    classification = torch.Tensor(len(box))
+                    classification.fill_(num)
+                else:
+                    c = torch.Tensor(len(box))
+                    c.fill_(num)
+                    classification = torch.cat((classification, c))
+
+        return scores, classification.int(), boxes
 
 
 

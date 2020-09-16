@@ -30,8 +30,8 @@ augmentation:
 inputsize: 512
 
 # optimizer setting
-n_iteration: 1000
-batchsize: 32
+n_iteration: 500
+batchsize: 64
 learning_rate: 0.0001
 warm_up: 200  # iteration
 lr_step:

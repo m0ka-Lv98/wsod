@@ -1,4 +1,0 @@
-2020-08-26 19:01:22,887 Setting up a new session...
-2020-08-26 19:01:22,899 Visdom successfully connected to server
-2020-08-27 19:26:35,176 best value: -0.8673790676255075
-2020-08-27 19:26:35,177 best params: {'p_w_t': 5.0, 'p_w_v': 7.0, 'p_w_u': 5.0, 'adam_lr': 0.003957589494811502, 'weight_decay': 7.669908302115547e-08}

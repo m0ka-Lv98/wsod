@@ -10,7 +10,7 @@ from visdom import Visdom
 import time
 import argparse
 
-from model import ResNet50, ResNet101, EfficientNetb0, EfficientNetb1
+from model import *
 from make_dloader import make_data
 from utils import data2target, calc_confusion_matrix, draw_graph
 from eval_classify import evaluate_coco_weak
@@ -25,8 +25,8 @@ parser.add_argument('--batchsize', type=int, default=config['batchsize'])
 parser.add_argument('--iteration', type=int, default=config['n_iteration'])
 parser.add_argument('--epochs', type=int, default=10)
 parser.add_argument('--tap', action='store_true', default=False)
-parser.add_argument('--lr', type=float, default=3e-5)
-parser.add_argument('--weightdecay', type=float, default=6e-10)
+parser.add_argument('--lr', type=float, default=2.7e-5)
+parser.add_argument('--weightdecay', type=float, default=3.6e-11)
 parser.add_argument('--model', type=str, default="ResNet50")
 args = parser.parse_args()
 
@@ -44,7 +44,7 @@ def main():
     model.cuda()
     torch.backends.cudnn.benchmark = True
 
-    pos_weight = torch.tensor([5.0,12.0,6.0]*args.batchsize).reshape(-1,3)
+    pos_weight = torch.tensor([1.0,5.0,16.0]*args.batchsize).reshape(-1,3)
     criterion = nn.BCEWithLogitsLoss(pos_weight = pos_weight.cuda())
     optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay = args.weightdecay)
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size = 1, gamma = 0.1)
