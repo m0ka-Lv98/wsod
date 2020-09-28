@@ -26,7 +26,7 @@ def evaluate_coco_weak(val, model, model_path, save_path, threshold=0.05):
         ])
 
     train = [i for i in range(5) if i!=val]
-    dataset = dataset_all.split(train, config['dataset']['split_file']) #訓練データで可視化
+    dataset = dataset_all.split(val, config['dataset']['split_file']) 
     dataset.set_transform(transform)
     
     model = eval(model + '()')
@@ -100,8 +100,7 @@ def evaluate_coco_weak(val, model, model_path, save_path, threshold=0.05):
     return
 
 if __name__ == "__main__":
-    val = 0
-    it = 1000
-    model = 'ResNet50'
-    evaluate_coco_weak(val, model = model, model_path = f'/data/unagi0/masaoka/wsod/model/cam/{model}_{val}.pt',
-                        save_path = f"/data/unagi0/masaoka/wsod/result_bbox/cam/{model}_{val}_train.json")
+    model = 'DualResNet50'
+    for val in range(5):
+        evaluate_coco_weak(val, model = model, model_path = f'/data/unagi0/masaoka/wsod/model/cam/{model}_0.pt',
+                        save_path = f"/data/unagi0/masaoka/wsod/result_bbox/cam/{model}_{val}.json")

@@ -5,9 +5,18 @@ import torchvision.transforms as transforms
 import torch.optim as optim
 import numpy as np
 import time
-from model import ResNet50
+import argparse
+from model import *
 from efficientnet import efficientnet_b0
 from visdom import Visdom
+
+parser = argparse.ArgumentParser('classify')
+parser.add_argument('-b','--batchsize', type=int, default=64)
+parser.add_argument('--epochs', type=int, default=100)
+parser.add_argument('--lr', type=float, default=1e-3)
+parser.add_argument('--weightdecay', type=float, default=1e-7)
+parser.add_argument('-m', '--model', type=str, default="DualResNet50")
+args = parser.parse_args()
 
 def main():
     viz = Visdom(port=3289)
@@ -27,20 +36,20 @@ def main():
                                         transform=train_transform)
     valid_data = dset.CIFAR100(root='/data/unagi0/masaoka/cifar', train=False, download=True, 
                                         transform=valid_transform)
-    train_queue = torch.utils.data.DataLoader(train_data, 64, shuffle=True, num_workers=4)
-    valid_queue = torch.utils.data.DataLoader(valid_data, 64, shuffle=False, num_workers=4)
+    train_queue = torch.utils.data.DataLoader(train_data, args.batchsize, shuffle=True, num_workers=4)
+    valid_queue = torch.utils.data.DataLoader(valid_data, args.batchsize, shuffle=False, num_workers=4)
 
-    model = ResNet50(pretrained=False, num_classes=100) #efficientnet_b0(num_classes=100)
+    model = eval(args.model + "(pretrained=False, num_classes=100)") #efficientnet_b0(num_classes=100)
     model.cuda()
     model = nn.DataParallel(model)
     torch.backends.cudnn.benchmark = True
 
     criterion = nn.CrossEntropyLoss()
     criterion.cuda()
-    optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-5)
+    optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weightdecay)
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size = 2, gamma = 0.1)
 
-    epochs = 100
+    epochs = args.epochs
     accuracy = 0
     for epoch in range(epochs):
         model.train()
@@ -73,7 +82,7 @@ def main():
                     opts=dict(showlegend=True, title="accuracy"))
             if acc > accuracy:
                 accuracy = acc
-                torch.save(model.module.state_dict(), '/data/unagi0/masaoka/wsod/model/pretrain/resnet50.pt')
+                torch.save(model.module.state_dict(), f'/data/unagi0/masaoka/wsod/model/pretrain/{args.model}.pt')
         scheduler.step()
     
 main()

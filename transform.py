@@ -45,7 +45,7 @@ class Augmentation:
             ]
         if active('rotate_flip_shear'):
             seq += [
-                iaa.Affine(rotate=iap.DiscreteUniform(-179,180),shear=(-20, 20)),
+                iaa.Affine(rotate=iap.DiscreteUniform(-179,180),shear=(-10, 10)),
                 iaa.Fliplr(0.5),
                 iaa.Flipud(0.5)
             ]

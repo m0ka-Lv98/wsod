@@ -21,44 +21,53 @@ config = yaml.safe_load(open('./config.yaml'))
 parser = argparse.ArgumentParser('classify')
 parser.add_argument('--train', nargs="*", type=int, default=config['dataset']['train'])
 parser.add_argument('--val', type=int, default=config['dataset']['val'][0])
-parser.add_argument('--batchsize', type=int, default=config['batchsize'])
-parser.add_argument('--iteration', type=int, default=config['n_iteration'])
+parser.add_argument('-b','--batchsize', type=int, default=config['batchsize'])
+parser.add_argument('-i', '--iteration', type=int, default=config['n_iteration'])
 parser.add_argument('--epochs', type=int, default=10)
-parser.add_argument('--tap', action='store_true', default=False)
-parser.add_argument('--lr', type=float, default=2.7e-5)
-parser.add_argument('--weightdecay', type=float, default=3.6e-11)
-parser.add_argument('--model', type=str, default="ResNet50")
+parser.add_argument('--lr', type=float, default=1e-5)
+parser.add_argument('--weightdecay', type=float, default=1e-7)
+parser.add_argument('-m', '--model', type=str, default="DualResNet50")
+parser.add_argument('-np', '--not_pretrained', action='store_false', default=True)
+parser.add_argument('--tap', action="store_true", default=False)
 args = parser.parse_args()
 
 metric_best = np.array([0,0,0])
 metric_best_sum = 0
 seed = time.time()
+Dir = "tap" if args.tap else "cam"
+model_name = args.model
+if args.not_pretrained == False:
+    model_name += '_not_pretrained'
 
 
 def main():
+    global model_name
     dl_t, dl_v, _, _, _ = make_data(batchsize = args.batchsize, iteration = args.iteration, 
                                 train = args.train, val = args.val)
-    model = eval(args.model + "()")
-    model.tap = args.tap
+    model = eval(args.model + f'(pretrained={args.not_pretrained}, tap={args.tap})')
+    if model.head != 1:
+        model_name += f'{model.head}head'
     model = torch.nn.DataParallel(model) # make parallel
     model.cuda()
     torch.backends.cudnn.benchmark = True
+    
 
-    pos_weight = torch.tensor([1.0,5.0,16.0]*args.batchsize).reshape(-1,3)
+    pos_weight = torch.tensor([9.,16.0,13.]*args.batchsize).reshape(-1,3)
     criterion = nn.BCEWithLogitsLoss(pos_weight = pos_weight.cuda())
+    #optimizer = optim.SGD(model.parameters(), lr=args.lr, weight_decay = args.weightdecay, momentum=0.9)
     optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay = args.weightdecay)
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size = 1, gamma = 0.1)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size = 2, gamma = 0.1)
 
     #訓練
     for epoch in range(args.epochs):
         train_val(model, optimizer, criterion, epoch, dl_t, dl_v)
-        scheduler.step()
+        #scheduler.step()
     
-    torch.save(model.module.state_dict(), f'/data/unagi0/masaoka/wsod/model/cam/{args.model}_{args.val}.pt')
+    torch.save(model.module.state_dict(), f'/data/unagi0/masaoka/wsod/model/{Dir}/{model_name}_{args.val}.pt')
         
     #モデルの最終評価
-    evaluate_coco_weak(args.val, model = args.model, model_path = f'/data/unagi0/masaoka/wsod/model/cam/{args.model}_{args.val}.pt',
-                        save_path = f"/data/unagi0/masaoka/wsod/result_bbox/cam/{args.model}_{args.val}.json")
+    evaluate_coco_weak(args.val, model = args.model, tap = model.tap, model_path = f'/data/unagi0/masaoka/wsod/model/{Dir}/{model_name}_{args.val}.pt',
+                        save_path = f"/data/unagi0/masaoka/wsod/result_bbox/{Dir}/{model_name}_{args.val}.json")
        
 def train_val(model, optimizer, criterion, epoch, dl_t, dl_v):
     global metric_best_sum
@@ -87,7 +96,7 @@ def train_val(model, optimizer, criterion, epoch, dl_t, dl_v):
             specificity = tn/(fp+tn)
             metric = 2*recall*precision/(recall+precision+1e-10)
             draw_graph(precision, recall, specificity, metric, seed, args.val, epoch, args.iteration, it, viz)
-            torch.save(model.module.state_dict(), f'/data/unagi0/masaoka/wsod/model/cam/{args.model}_{args.val}_{epoch*args.iteration+it}.pt')
+            torch.save(model.module.state_dict(), f'/data/unagi0/masaoka/wsod/model/{Dir}/{model_name}_{args.val}_{epoch*args.iteration+it}.pt')
             metric_best = metric if metric.sum() > metric_best.sum() else metric_best
             metric_best_sum = metric_best.sum()
             model.train()

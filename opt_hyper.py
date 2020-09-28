@@ -6,8 +6,7 @@ from make_dloader import make_data
 import json
 import yaml
 import numpy as np
-from model import ResNet50, EfficientNetb0, EfficientNetb1
-from efficientnet import efficientnet_b0,efficientnet_b1,efficientnet_b2,efficientnet_b3
+from model import *
 import yaml
 from visdom import Visdom
 from utils import bbox_collate, data2target, calc_confusion_matrix, draw_graph
@@ -24,12 +23,13 @@ config = yaml.safe_load(open('./config.yaml'))
 parser = argparse.ArgumentParser()
 parser.add_argument('--train', nargs="*", type=int, default=config['dataset']['train'])
 parser.add_argument('--val', type=int, default=config['dataset']['val'][0])
-parser.add_argument('--batchsize', type=int, default=config['batchsize'])
-parser.add_argument('--iteration', type=int, default=config['n_iteration'])
+parser.add_argument('-b', '--batchsize', type=int, default=config['batchsize'])
+parser.add_argument('-i', '--iteration', type=int, default=config['n_iteration'])
 parser.add_argument('--epochs', type=int, default=3)
 parser.add_argument('--tap', action='store_true', default=False)
 parser.add_argument('--trialsize', type=int, default=20)
-parser.add_argument('--model', type=str, default="ResNet50")
+parser.add_argument('-m', '--model', type=str, default="DualResNet50")
+parser.add_argument('-np', '--not_pretrained', action='store_false', default=True)
 args = parser.parse_args()
 
 model_opt = 0
@@ -41,6 +41,10 @@ logging.basicConfig(stream=sys.stdout, level=logging.INFO,
 fh = logging.FileHandler(os.path.join('optuna', f'{args.model}.txt'))
 fh.setFormatter(logging.Formatter(log_format))
 logging.getLogger().addHandler(fh)
+model_name = args.model
+Dir = "tap" if args.tap else "cam"
+if args.not_pretrained == False:
+    model_name += '_not_pretrained'
 
 
 def main():
@@ -55,29 +59,29 @@ def main():
     logging.info(f'best params: {study.best_params}')
     
 def get_optimizer(trial, model):
-    adam_lr = trial.suggest_loguniform('lr', 1e-7, 1e-3)
-    weight_decay = trial.suggest_loguniform('weightdecay', 1e-11, 1e-8)
-    optimizer = optim.Adam(model.parameters(), lr=adam_lr, weight_decay=weight_decay)
-    logging.info(f'lr = {adam_lr}, w_d = {weight_decay}')
+    lr = trial.suggest_loguniform('lr', 1e-7, 1e-3)
+    weight_decay = trial.suggest_loguniform('weightdecay', 1e-9, 1e-4)
+    #lr, weight_decay = 1e-6, 1e-7
+    #optimizer = optim.SGD(model.parameters(), lr=lr, weight_decay=weight_decay, momentum=0.9)
+    optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+    logging.info(f'lr = {lr}, w_d = {weight_decay}')
     return optimizer
 
 def objective(trial):
-    global step
+    global step, model_name
     print(f'{step}/{args.trialsize}')
     step += 1
     best_score = 1
     EPOCHS = args.epochs
-    model = eval(args.model + "()")
+    model = eval(args.model + f'(pretrained={args.not_pretrained}, tap={args.tap})')
     model = nn.DataParallel(model)
-    model.tap = args.tap
     model.cuda()
 
-    #t = trial.suggest_discrete_uniform("p_w_t", 5.0, 15.0, 1.0)
-    t = 1.0
+    t = trial.suggest_discrete_uniform("p_w_t", 1.0, 20.0, 1.0)
     v = trial.suggest_discrete_uniform("p_w_v", 1.0, 20.0, 1.0)
     u = trial.suggest_discrete_uniform("p_w_u", 1.0, 20.0, 1.0)
+    #t,v,u = 8.,13.,13.
     logging.info(f't = {t}; v = {v}, u = {u}')
-    #t,v,u = 1.0,8.5,11.5
     optimizer = get_optimizer(trial, model)
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size = 2, gamma = 0.1)
     pos_weight = torch.tensor([t,v,u]*args.batchsize).reshape(-1,3)
@@ -87,6 +91,7 @@ def objective(trial):
         scheduler.step()
         if metric < best_score:
             best_score = metric
+            torch.save(model.module.state_dict(), f'/data/unagi0/masaoka/wsod/model/{Dir}/{model_name}head_opt_{args.val}.pt')
     logging.info(f'best_score = {-best_score}')
     return best_score
 
@@ -104,9 +109,9 @@ def train_val(model, optimizer, criterion, epoch, d_train, d_val):
         train_loss_list.append(loss.cpu().data.numpy())
         print(f'{epoch}epoch,{it}/{len(d_train)}, loss {loss.data:.4f}', end='\r')
         if it%10==0:
-            viz.scatter(X = np.array([it + epoch*args.iteration]),Y = np.array([sum(train_loss_list)/len(train_loss_list)]), 
+            viz.line(X = np.array([it + epoch*args.iteration]),Y = np.array([sum(train_loss_list)/len(train_loss_list)]), 
                                 win=f"t_loss{seed}_{args.val}", name='train_loss', update='append',
-                                opts=dict(showlegend=True,title=f"Loss_val{args.val}",markersize=1.0))
+                                opts=dict(showlegend=True,title=f"Loss_val{args.val}",markersize=4.0))
             del train_loss_list
             train_loss_list = []
         if it%500==0:

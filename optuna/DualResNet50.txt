@@ -1,0 +1,24 @@
+2020-09-24 02:25:34,877 Setting up a new session...
+2020-09-24 02:25:34,897 Visdom successfully connected to server
+2020-09-24 02:25:35,808 args:Namespace(batchsize=32, epochs=3, iteration=1000, model='DualResNet50', not_pretrained=False, tap=False, train=[1, 2, 3, 4], trialsize=20, val=0)
+2020-09-24 02:25:39,939 t = 7.0; v = 17.0, u = 18.0
+2020-09-24 02:25:39,940 lr = 1.929740989567029e-07, w_d = 1.149557762159576e-05
+2020-09-24 02:27:17,850 Setting up a new session...
+2020-09-24 02:27:17,860 Visdom successfully connected to server
+2020-09-24 02:27:18,338 args:Namespace(batchsize=32, epochs=3, iteration=1000, model='DualResNet50', not_pretrained=False, tap=False, train=[1, 2, 3, 4], trialsize=20, val=0)
+2020-09-24 02:27:22,844 t = 14.0; v = 1.0, u = 12.0
+2020-09-24 02:27:22,845 lr = 6.012664574328806e-05, w_d = 1.8261836669286238e-06
+2020-09-24 02:59:56,248 Setting up a new session...
+2020-09-24 02:59:56,259 Visdom successfully connected to server
+2020-09-24 02:59:56,785 args:Namespace(batchsize=32, epochs=3, iteration=1000, model='DualResNet50', not_pretrained=False, tap=False, train=[1, 2, 3, 4], trialsize=20, val=0)
+2020-09-24 03:00:00,747 t = 7.0; v = 12.0, u = 20.0
+2020-09-24 03:00:00,749 lr = 0.0007825903933387252, w_d = 3.8010665384623716e-08
+2020-09-24 03:32:20,828 best_score = 0.2232394199630566
+2020-09-24 03:32:21,544 t = 13.0; v = 19.0, u = 11.0
+2020-09-24 03:32:21,545 lr = 3.869918393915063e-05, w_d = 9.629858751756994e-07
+2020-09-24 04:04:51,126 best_score = 0.2423420337231433
+2020-09-24 04:04:51,900 t = 7.0; v = 20.0, u = 13.0
+2020-09-24 04:04:51,901 lr = 1.4651476348008844e-06, w_d = 6.558728108643877e-09
+2020-09-24 04:37:23,081 best_score = 0.1369310596208969
+2020-09-24 04:37:23,855 t = 9.0; v = 1.0, u = 6.0
+2020-09-24 04:37:23,856 lr = 9.029155922258053e-07, w_d = 1.3846711124921632e-09
