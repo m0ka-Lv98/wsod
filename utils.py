@@ -34,7 +34,7 @@ def bbox_collate(batch):
     return collated
 
 #入力データ(バッチ)から教師データに変換　変換後：[[0,0,1],[0,0,0],...]
-def data2target(data, output):
+def data2target(data, output=torch.tensor([[0,0,0],[0,0,0]])):
     target = torch.zeros_like(output)
     n,t,v,u = 0, 0, 0, 0
     for i in range(output.shape[0]):
