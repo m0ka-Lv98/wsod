@@ -3,6 +3,9 @@ import torch.nn as nn
 import numpy as np
 
 def calc_iou(a, b):
+    if a.dim() == 1:
+        a = a.unsqueeze(0)
+        b = b.unsqueeze(0)
     a = a.cuda().float()
     b= b.cuda().float()
     area = (b[:, 2] - b[:, 0]) * (b[:, 3] - b[:, 1])
@@ -34,16 +37,19 @@ def bbox_collate(batch):
     return collated
 
 #入力データ(バッチ)から教師データに変換　変換後：[[0,0,1],[0,0,0],...]
-def data2target(data, output=torch.tensor([[0,0,0],[0,0,0]])):
-    target = torch.zeros_like(output)
+def data2target(data):
+    bs = data["img"].shape[0]
+    target = torch.zeros(bs, 4)
+    target[:,3] = 1
     n,t,v,u = 0, 0, 0, 0
-    for i in range(output.shape[0]):
+    for i in range(bs):
         bbox = data["annot"][i][:,:]
         bbox = bbox[bbox[:,4]!=-1]
         flag = -1
         for k in range(bbox.shape[0]):
             flag = int(bbox[k][4])
             target[i][flag] = 1
+            target[i][3] = 0
             n+=1
         if flag == 0:
             t+=1

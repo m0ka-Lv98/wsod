@@ -8,7 +8,7 @@ from torch.utils.data import Dataset
 
 
 class MedicalBboxDataset(Dataset):
-    def __init__(self, annotation, data_path, transform=None):
+    def __init__(self, annotation, data_path, pseudo_path=None, transform=None):
         if isinstance(annotation, dict):
             self.coco = COCO()
             self.coco.dataset = annotation
@@ -19,6 +19,15 @@ class MedicalBboxDataset(Dataset):
         self.imgids = self.coco.getImgIds()
         self.set_transform(transform)
         self.load_classes()
+        self.p_path = pseudo_path
+        self.p_list = []
+        if isinstance(pseudo_path,str):
+            for i in range(0,40,4):
+                pseudo_path = f"/data/unagi0/masaoka/endoscopy/annotations/pseudo_annotations{i}.json"
+                with open(pseudo_path, "r") as json_open:
+                    self.p_file = json.load(json_open)
+                    self.p_list.append(self.p_file)
+            
 
     def load_classes(self):
         # load class names (name -> label)
@@ -104,11 +113,18 @@ class MedicalBboxDataset(Dataset):
         bboxes = np.array(bboxes, dtype=np.float32).reshape(-1, 4)
         bboxes[:, 2:] += bboxes[:, :2]  # xywh -> xyxy
         labels = np.array(labels, dtype=np.int)
+        p_bboxes = []
+        if self.p_path != None:
+            x = int(i//4000)
+            p_bboxes = self.p_list[x]['pseudo_annotations'][f"p_bbox{i}"] #[f"p_bbox{imgid}"]
+            
+ 
         
         return {
             'annot' : annotations,
             'bboxes': bboxes,
-            'labels': labels
+            'labels': labels,
+            'p_bboxes':p_bboxes
         }
     
     def set_transform(self, transform):
@@ -136,7 +152,7 @@ class MedicalBboxDataset(Dataset):
             'images': self.coco.loadImgs(imgids),
             'annotations': self.coco.loadAnns(self.coco.getAnnIds(imgIds=imgids))
         }
-        return MedicalBboxDataset(coco_format, self.data_path, self.transform)
+        return MedicalBboxDataset(coco_format, self.data_path, self.p_path, self.transform)
 
     def integrate_classes(self, new_cats, idmap):
         annotations = copy.deepcopy(self.coco.dataset['annotations'])
@@ -149,7 +165,7 @@ class MedicalBboxDataset(Dataset):
             'images': self.coco.dataset['images'],
             'annotations': annotations
         }
-        return MedicalBboxDataset(coco_format, self.data_path, self.transform)
+        return MedicalBboxDataset(coco_format, self.data_path, self.p_path, self.transform)
 
     def with_annotation_imgids(self):
         imgids = []
@@ -182,3 +198,26 @@ class MedicalBboxDataset(Dataset):
     def image_aspect_ratio(self, image_index):
         image = self.coco.loadImgs(self.imgids[image_index])[0]
         return float(image['width']) / float(image['height'])
+    
+    def torose_imgids(self):
+        imgids = []
+        imgids += self.coco.getImgIds(catIds=1)
+        return imgids
+    def vascular_imgids(self):
+        imgids = []
+        imgids += self.coco.getImgIds(catIds=2)
+        return imgids
+    def ulcer_imgids(self):
+        imgids = []
+        imgids += self.coco.getImgIds(catIds=3)
+        return imgids
+    
+    def torose(self):
+        imgids = self.torose_imgids()
+        return self.split_by_imgids(imgids)
+    def vascular(self):
+        imgids = self.vascular_imgids()
+        return self.split_by_imgids(imgids)
+    def ulcer(self):
+        imgids = self.ulcer_imgids()
+        return self.split_by_imgids(imgids)

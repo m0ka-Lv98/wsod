@@ -5,7 +5,6 @@ from imgaug import BoundingBoxesOnImage
 from imgaug import augmenters as iaa
 from imgaug import parameters as iap
 
-
 class ToFixedSize:
     def __init__(self, size):
         self.size = size
@@ -21,6 +20,12 @@ class ToFixedSize:
         image = data['img']
         data['img'] = np.zeros([*self.size, data['img'].shape[2]])
         data['img'][:h, :w] = cv2.resize(image, (w, h), interpolation=cv2.INTER_CUBIC)
+        data["p_bboxes"] = np.array(data["p_bboxes"]).astype(np.float64)
+        if data["p_bboxes"].size > 0:
+            data['p_bboxes'][:, 0::2] *= w / raw_w
+            data['p_bboxes'][:, 1::2] *= h / raw_h
+            data['p_bboxes'][:, 0:2] = np.floor(data['p_bboxes'][:, 0:2])
+            data['p_bboxes'][:, 2:4] = np.ceil(data['p_bboxes'][:, 2:4])
         
         data['bboxes'][:, 0::2] *= w / raw_w
         data['bboxes'][:, 1::2] *= h / raw_h
@@ -70,12 +75,19 @@ class Augmentation:
         data = copy.copy(data)
         seq = self.seq.to_deterministic()
         image = data['img']
-        bboxes = BoundingBoxesOnImage.from_xyxy_array(data['bboxes'], shape=image.shape)
-        
-        image, bboxes = seq(image=image, bounding_boxes=bboxes)
-        bboxes = bboxes.clip_out_of_image()
+        data["p_bboxes"] = np.array(data["p_bboxes"])
+        if data["p_bboxes"].size > 0:
+            bboxes = BoundingBoxesOnImage.from_xyxy_array(data['p_bboxes'], shape=image.shape)
+            image, bboxes = seq(image=image, bounding_boxes=bboxes)
+            bboxes = bboxes.clip_out_of_image()
+            data['p_bboxes'] = BoundingBoxesOnImage.to_xyxy_array(bboxes)
+        else:
+            bboxes = BoundingBoxesOnImage.from_xyxy_array(data['bboxes'], shape=image.shape)
+            image, bboxes = seq(image=image, bounding_boxes=bboxes)
+            bboxes = bboxes.clip_out_of_image()
+            data['bboxes'] = BoundingBoxesOnImage.to_xyxy_array(bboxes)
         data['img'] = image
-        data['bboxes'] = BoundingBoxesOnImage.to_xyxy_array(bboxes)
+        
 
         return data
 

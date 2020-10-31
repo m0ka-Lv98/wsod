@@ -13,7 +13,8 @@ def evaluate_coco_weak(val, model, model_path, save_path, threshold=0.05):
     dataset_means = json.load(open(config['dataset']['mean_file']))
     dataset_all = MedicalBboxDataset(
         config['dataset']['annotation_file'],
-        config['dataset']['image_root'])
+        config['dataset']['image_root'],
+        pseudo_path = "/data/unagi0/masaoka/endoscopy/annotations/pseudo_annotations.json")
     if 'class_integration' in config['dataset']:
         dataset_all = dataset_all.integrate_classes(
             config['dataset']['class_integration']['new'],
@@ -32,16 +33,15 @@ def evaluate_coco_weak(val, model, model_path, save_path, threshold=0.05):
     model = eval(model + '()')
     model.load_state_dict(torch.load(model_path))
     model.cuda()
-    cam = Cam(model)
-    gen = Gen_bbox(cam)
     results = []
     image_ids = []
+    model.eval()
     for index in range(len(dataset)):
         data = dataset[index]
-        scale = 1   #data['scale']
-        data['img'] = torch.from_numpy(data['img']) #.permute(2, 0, 1)
+        data['img'] = torch.from_numpy(data['img']) 
         # run network
-        scores, labels, boxes = gen(data['img'].unsqueeze(0).cuda().float())
+        rois = torch.from_numpy(data["p_bboxes"][:2000]).unsqueeze(0).cuda().float()
+        scores, labels, boxes = model(data['img'].unsqueeze(0).cuda().float(), None,rois,2000)
         
         scores = scores.cpu()
         labels = labels.cpu()
@@ -57,6 +57,9 @@ def evaluate_coco_weak(val, model, model_path, save_path, threshold=0.05):
             for box_id in range(boxes.shape[0]):
                 score = float(scores[box_id])
                 label = int(labels[box_id])
+                #print(label)
+                if label == 3:
+                    continue
                 box = boxes[box_id, :]
                 
 
@@ -79,7 +82,7 @@ def evaluate_coco_weak(val, model, model_path, save_path, threshold=0.05):
         image_ids.append(dataset.imgids[index])
 
         # print progress
-        print('{}/{}'.format(index, len(dataset)), end='\r')
+        print(f'{index}/{len(dataset)}', end='\r')
 
     if not len(results):
             print("error")
@@ -100,7 +103,7 @@ def evaluate_coco_weak(val, model, model_path, save_path, threshold=0.05):
     return
 
 if __name__ == "__main__":
-    model = 'DualResNet50'
+    model = 'OICR'
     for val in range(5):
-        evaluate_coco_weak(val, model = model, model_path = f'/data/unagi0/masaoka/wsod/model/cam/{model}_0.pt',
-                        save_path = f"/data/unagi0/masaoka/wsod/result_bbox/cam/{model}_{val}.json")
+        evaluate_coco_weak(val, model = model, model_path = f'/data/unagi0/masaoka/wsod/model/oicr/ResNet50_2.pt',
+                        save_path = f"/data/unagi0/masaoka/wsod/result_bbox/oicr/ResNet50_{val}.json")
