@@ -27,8 +27,8 @@ class ToFixedSize:
             data['p_bboxes'][:, 0:2] = np.floor(data['p_bboxes'][:, 0:2])
             data['p_bboxes'][:, 2:4] = np.ceil(data['p_bboxes'][:, 2:4])
         
-        data['bboxes'][:, 0::2] *= w / raw_w
-        data['bboxes'][:, 1::2] *= h / raw_h
+        data['annot'][:, 0::2] *= w / raw_w
+        data['annot'][:, 1::2] *= h / raw_h
         
         
         return data
@@ -82,10 +82,10 @@ class Augmentation:
             bboxes = bboxes.clip_out_of_image()
             data['p_bboxes'] = BoundingBoxesOnImage.to_xyxy_array(bboxes)
         else:
-            bboxes = BoundingBoxesOnImage.from_xyxy_array(data['bboxes'], shape=image.shape)
+            bboxes = BoundingBoxesOnImage.from_xyxy_array(data['annot'][:,:-1], shape=image.shape)
             image, bboxes = seq(image=image, bounding_boxes=bboxes)
             bboxes = bboxes.clip_out_of_image()
-            data['bboxes'] = BoundingBoxesOnImage.to_xyxy_array(bboxes)
+            data['annot'][:,:-1] = BoundingBoxesOnImage.to_xyxy_array(bboxes)
         data['img'] = image
         
 

@@ -8,7 +8,7 @@ from utils import bbox_collate, MixedRandomSampler
 import transform as transf
 from dataset import MedicalBboxDataset
 import time
-def make_data(batchsize = None, iteration = None, train = None, val = None):
+def make_data(batchsize = None, iteration = None, train = None, val = None,p_path='str'):
     config = yaml.safe_load(open('./config.yaml'))
     if batchsize == None: 
         batchsize = config["batchsize"] 
@@ -20,26 +20,24 @@ def make_data(batchsize = None, iteration = None, train = None, val = None):
         val = config['dataset']['val']
     else:
         val = [val]
-    p_path = "/data/unagi0/masaoka/endoscopy/annotations/pseudo_annotations500.json"
     dataset_means = json.load(open(config['dataset']['mean_file']))
     
-    try:
-        #print('all')
+    if isinstance(p_path,str):
         print('ulcer')
-        train_ulcer = torch.load('/data/unagi0/masaoka/train_ulcer.pt')
+        train_ulcer = torch.load('/data/unagi0/masaoka/train_ulcer.pt')#torch.load('/data/unagi0/masaoka/train_ulcer_box.pt')
         #train_all = torch.load('/data/unagi0/masaoka/train_all.pt')
         print('normal')
-        train_normal = train_ulcer#torch.load('/data/unagi0/masaoka/train_normal.pt')#
+        train_normal = torch.load('/data/unagi0/masaoka/train_normal.pt')#torch.load('/data/unagi0/masaoka/train_normal_box.pt')
         print('torose')
-        train_torose = train_normal#torch.load('/data/unagi0/masaoka/train_torose.pt')#
+        train_torose = torch.load('/data/unagi0/masaoka/train_torose.pt')#torch.load('/data/unagi0/masaoka/train_torose_box.pt')
         print('vascular')
-        train_vascular = train_normal#torch.load('/data/unagi0/masaoka/train_vascular.pt')#
+        train_vascular = torch.load('/data/unagi0/masaoka/train_vascular.pt')#torch.load('/data/unagi0/masaoka/train_vascular_box.pt')
         
-    except:
+    else:
         dataset_all = MedicalBboxDataset(
             config['dataset']['annotation_file'],
             config['dataset']['image_root'],
-            pseudo_path=p_path)
+            pseudo_path=0)
         # train dataの取得
         transform = Compose([
             transf.Augmentation(config['augmentation']),
@@ -55,20 +53,19 @@ def make_data(batchsize = None, iteration = None, train = None, val = None):
     
         train_all = dataset_all.split(train, config['dataset']['split_file'])
         train_all.set_transform(transform)
-        torch.save(train_all,'/data/unagi0/masaoka/train_all.pt')
+        #torch.save(train_all,f'/data/unagi0/masaoka/train_all_{val[0]}.pt')
         print('save complete!')
         train_normal = train_all.without_annotation()
-        train_normal.set_transform(transform)
-        torch.save(train_normal,'/data/unagi0/masaoka/train_normal.pt')
+        #torch.save(train_normal,f'/data/unagi0/masaoka/train_normal_{val[0]}.pt')
+        print('save complete!')
         train_torose = train_all.torose()
-        train_torose.set_transform(transform)
-        torch.save(train_torose,'/data/unagi0/masaoka/train_torose.pt')
+        #torch.save(train_torose,f'/data/unagi0/masaoka/train_torose_{val[0]}.pt')
+        print('save complete!')
         train_vascular = train_all.vascular()
-        train_vascular.set_transform(transform)
-        torch.save(train_vascular,'/data/unagi0/masaoka/train_vascular.pt')
+        #torch.save(train_vascular,f'/data/unagi0/masaoka/train_vascular_{val[0]}.pt')
+        print('save complete!')
         train_ulcer = train_all.ulcer()
-        train_ulcer.set_transform(transform)
-        torch.save(train_ulcer,'/data/unagi0/masaoka/train_ulcer.pt')
+        #torch.save(train_ulcer,f'/data/unagi0/masaoka/train_ulcer_{val[0]}.pt')
     #n_fg_class = len(dataset_all.get_category_names()) 
 
     generator = torch.Generator()
@@ -84,29 +81,35 @@ def make_data(batchsize = None, iteration = None, train = None, val = None):
     
     dataloader_train = DataLoader(
         sampler.get_concatenated_dataset(),
-        num_workers=8,
+        num_workers=4,
         batch_sampler=batch_sampler,
         collate_fn=bbox_collate)
     #ここまで
 
-    '''#test dataの取得
+    
+    #test dataの取得
     transform = Compose([
         transf.ToFixedSize([config['inputsize']] * 2),  # inputsize x inputsizeの画像に変換
         transf.Normalize(dataset_means['mean'], dataset_means['std']),
         transf.HWCToCHW()
         ])
 
-    try:
+    val_all=0
+    
+    if isinstance(p_path,str):
         s= time.time()
+        print(f'/data/unagi0/masaoka/val_all{val[0]}.pt')
         val_all = torch.load(f'/data/unagi0/masaoka/val_all{val[0]}.pt')
         e=time.time()
         print(e-s)
-    except:
+    else:
         val_all = dataset_all.split(val, config['dataset']['split_file'])
         val_all.set_transform(transform)
-        torch.save(val_all,f'/data/unagi0/masaoka/val_all{val[0]}.pt')
+        #torch.save(val_all,f'/data/unagi0/masaoka/val_all{val[0]}.pt') 
+        
+    
     dataloader_val = DataLoader(val_all, batch_size=1, shuffle=False, 
                                 num_workers=4, collate_fn=bbox_collate)
     #ここまで'''
     del train_normal,train_torose,train_ulcer,train_vascular
-    return dataloader_train, 1, 1, 1, 1
+    return dataloader_train, 1, dataloader_val, val_all, 1

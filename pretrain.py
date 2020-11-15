@@ -1,91 +1,116 @@
 import torch
 import torch.nn as nn
-import torchvision.datasets as dset
-import torchvision.transforms as transforms
 import torch.optim as optim
+from modules import *
+import torchvision
+from torchvision import models
 import numpy as np
-import time
-import argparse
-from model import *
-from efficientnet import efficientnet_b0
+from torchvision import transforms
+from torchvision.transforms import Compose
+import transform as transf
+from torch.utils.data import DataLoader
+from utils import bbox_collate, data2target,MixedRandomSampler
+import yaml
+import os
+import json
+import copy
+from PIL import Image
+from dataset import MedicalBboxDataset
+from make_dloader import make_data
 from visdom import Visdom
+import argparse
+import time
 
-parser = argparse.ArgumentParser('classify')
-parser.add_argument('-b','--batchsize', type=int, default=64)
-parser.add_argument('--epochs', type=int, default=100)
-parser.add_argument('--lr', type=float, default=1e-3)
-parser.add_argument('--weightdecay', type=float, default=1e-7)
-parser.add_argument('-m', '--model', type=str, default="DualResNet50")
+config = yaml.safe_load(open('./config.yaml'))
+parser = argparse.ArgumentParser()
+parser.add_argument('--train', nargs="*", type=int, default=config['dataset']['train'])
+parser.add_argument('--val', type=int, default=config['dataset']['val'][0])
+parser.add_argument('-b','--batchsize', type=int, default=config['batchsize'])
+parser.add_argument('-i', '--iteration', type=int, default=config['n_iteration'])
+parser.add_argument('--epochs', type=int, default=6)
+parser.add_argument('--lr', type=float, default=1e-4)
+parser.add_argument('--weightdecay', type=float, default=5e-4)
+parser.add_argument('-m', '--model', type=str, default="SLV_Retina_pre")
+parser.add_argument('-r', '--resume', type=int, default=0)
+parser.add_argument('-p','--port',type=int,default=3289)
 args = parser.parse_args()
-
+seed = int(time.time())
+model_name = args.model+f'{args.lr}'
+dl_t, dl_v, _, _, _ = make_data(batchsize=args.batchsize,iteration=args.iteration,val=args.val)
 def main():
-    viz = Visdom(port=3289)
-    seed = time.time()
-    train_transform = transforms.Compose([
-        transforms.RandomCrop(32, padding=4),
-        transforms.RandomHorizontalFlip(),
-        transforms.ToTensor(),
-        transforms.Normalize([0.5071, 0.4867, 0.4408], [0.2675, 0.2565, 0.2761])
-    ])
-    valid_transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.Normalize([0.5071, 0.4867, 0.4408], [0.2675, 0.2565, 0.2761])
-    ])
-
-    train_data = dset.CIFAR100(root='/data/unagi0/masaoka/cifar', train=True, download=True, 
-                                        transform=train_transform)
-    valid_data = dset.CIFAR100(root='/data/unagi0/masaoka/cifar', train=False, download=True, 
-                                        transform=valid_transform)
-    train_queue = torch.utils.data.DataLoader(train_data, args.batchsize, shuffle=True, num_workers=4)
-    valid_queue = torch.utils.data.DataLoader(valid_data, args.batchsize, shuffle=False, num_workers=4)
-
-    model = eval(args.model + "(pretrained=False, num_classes=100)") #efficientnet_b0(num_classes=100)
-    model.cuda()
-    model = nn.DataParallel(model)
+    global model_name
+    dataset_means = json.load(open(config['dataset']['mean_file']))
+    oicr = resnet18_fix(3,pretrained=True)
+    if args.resume > 0:
+        oicr.load_state_dict(torch.load(f"/data/unagi0/masaoka/wsod/model/oicr/{model_name}_{args.resume}.pt"))
+    oicr = nn.DataParallel(oicr)
+    oicr.cuda()
     torch.backends.cudnn.benchmark = True
-
-    criterion = nn.CrossEntropyLoss()
-    criterion.cuda()
-    optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weightdecay)
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size = 2, gamma = 0.1)
-
-    epochs = args.epochs
-    accuracy = 0
-    for epoch in range(epochs):
-        model.train()
-        train_loss = []
-        acc_list = []
-        for it, (input, target) in enumerate(train_queue, 1):
-            print(f'epoch:{epoch}, {it}/{len(train_queue)}', end='\r')
-            optimizer.zero_grad()
-            output = model(input.cuda().float())
-            loss = criterion(output, target.cuda())
+    #opt = optim.Adam(oicr.parameters(), lr = args.lr, weight_decay=args.weightdecay)
+    opt = optim.RMSprop(oicr.parameters(), lr = args.lr, weight_decay=args.weightdecay,momentum=0.9)
+    if args.resume > 0:
+        opt.load_state_dict(torch.load(f"/data/unagi0/masaoka/wsod/model/oicr/{model_name}_opt{args.resume}.pt"))
+    scheduler = optim.lr_scheduler.StepLR(opt, step_size = 2, gamma = 0.1)
+    train_loss_list = []
+    m_list = []
+    l1_list = []
+    l2_list = []
+    l3_list = []
+    for epoch in range(args.resume,args.epochs):
+        for i, data in enumerate(dl_t,1):
+            opt.zero_grad()
+            labels, n, t, v, u= data2target(data)
+            labels = labels.unsqueeze(1).unsqueeze(2).cuda().float() # bs, 1, 1, num_class
+            rois = [r.cuda().float() for r in data["p_bboxes"]]
+            n = min(list(map(lambda x: x.shape[0], rois)))
+            n = min(n,2000)
+            for ind, tensor in enumerate(rois):
+                rois[ind] = rois[ind][:n,:]
+            rois = torch.stack(rois, dim=0) 
+            rois = rois.unsqueeze(1) #bs, 1, n, 4
+            output, loss,m,l1,l2,l3 = oicr(data["img"].cuda().float(), labels, rois, n)
+            
+            loss = (m+l1+l2+l3)
+            loss = loss.mean()
             loss.backward()
-            train_loss.append(loss.cpu().data.numpy())
-            if it%10==0:
-                viz.line(X=np.array([it+epoch*len(train_queue)]), Y=np.array([sum(train_loss)/len(train_loss)/len(train_queue)]),
-                        win=f'loss_{seed}', update='append', name='loss', opts=dict(showlegend=True, title='loss'))
-                train_loss = []
-            optimizer.step()
-        model.eval()
-        with torch.no_grad():
-            acc = 0
-            for it, (input, target) in enumerate(valid_queue, 1):
-                print(f'{it}/{len(valid_queue)}', end='\r')
-                output = model(input.cuda().float())
-                output = output.cpu().data.numpy()
-                output = np.where(output>0.7, 1, 0)
-                target = torch.eye(100)[target]
-                acc = (output*target.numpy()).sum()/input.shape[0]
-                acc_list.append(acc)
-            viz.line(X=np.array([epoch]), Y=np.array([sum(acc_list)/len(acc_list)]), win=f'acc_{seed}', name='acc', update='append',
-                    opts=dict(showlegend=True, title="accuracy"))
-            if acc > accuracy:
-                accuracy = acc
-                torch.save(model.module.state_dict(), f'/data/unagi0/masaoka/wsod/model/pretrain/{args.model}.pt')
+            m = m.mean()
+            l1 = l1.mean()
+            l2 = l2.mean()
+            l3 = l3.mean()
+            m_list.append(m.cpu().data.numpy())
+            l1_list.append(l1.cpu().data.numpy())
+            l2_list.append(l2.cpu().data.numpy())
+            l3_list.append(l3.cpu().data.numpy())
+            opt.step()
+            train_loss_list.append(loss.cpu().data.numpy())
+            if i%10==0:
+                viz.line(X = np.array([i + epoch*len(dl_t)]),Y = np.array([sum(train_loss_list)/len(train_loss_list)]), 
+                                win=f"{seed}", name='train_loss', update='append',
+                                opts=dict(showlegend=True,title=f"{model_name}"))
+                viz.line(X = np.array([i + epoch*len(dl_t)]),Y = np.array([sum(m_list)/len(m_list)]), 
+                                win=f"{seed}", name='m', update='append',
+                                opts=dict(showlegend=True))
+                viz.line(X = np.array([i + epoch*len(dl_t)]),Y = np.array([sum(l1_list)/len(l1_list)]), 
+                                win=f"{seed}", name='l1', update='append',
+                                opts=dict(showlegend=True))
+                viz.line(X = np.array([i + epoch*len(dl_t)]),Y = np.array([sum(l2_list)/len(l2_list)]), 
+                                win=f"{seed}", name='l2', update='append',
+                                opts=dict(showlegend=True))
+                viz.line(X = np.array([i + epoch*len(dl_t)]),Y = np.array([sum(l3_list)/len(l3_list)]), 
+                                win=f"{seed}", name='l3', update='append',
+                                opts=dict(showlegend=True))
+                train_loss_list = []
+                m_list = []
+                l1_list = []
+                l2_list = []
+                l3_list = []
+            print(f'{i}/{len(dl_t)}, {loss}', end='\r')
+        torch.save(oicr.module.state_dict(), f"/data/unagi0/masaoka/wsod/model/oicr/{model_name}_{epoch+1}.pt")
+        torch.save(opt.state_dict(), f"/data/unagi0/masaoka/wsod/model/oicr/{model_name}_opt{epoch+1}.pt")
         scheduler.step()
     
-main()
 
 
-
+if __name__ == "__main__":
+    viz = Visdom(port=args.port)
+    main()

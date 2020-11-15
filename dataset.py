@@ -20,8 +20,9 @@ class MedicalBboxDataset(Dataset):
         self.set_transform(transform)
         self.load_classes()
         self.p_path = pseudo_path
-        self.p_list = []
+        self.p_list = np.empty((0,5))
         if isinstance(pseudo_path,str):
+            self.p_list=[]
             for i in range(0,40,4):
                 pseudo_path = f"/data/unagi0/masaoka/endoscopy/annotations/pseudo_annotations{i}.json"
                 with open(pseudo_path, "r") as json_open:
@@ -114,7 +115,7 @@ class MedicalBboxDataset(Dataset):
         bboxes[:, 2:] += bboxes[:, :2]  # xywh -> xyxy
         labels = np.array(labels, dtype=np.int)
         p_bboxes = []
-        if self.p_path != None:
+        if isinstance(self.p_path,str):
             x = int(i//4000)
             p_bboxes = self.p_list[x]['pseudo_annotations'][f"p_bbox{i}"] #[f"p_bbox{imgid}"]
             

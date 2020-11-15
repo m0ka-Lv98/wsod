@@ -26,15 +26,17 @@ def impl_ss(num):
         print(i)
         x = d.load_image(i)
         boxes = selective_search(x, mode = MODE, random_sort = True)
+        k = []
         for j,box in enumerate(boxes):
             ### 一定の長さが無い矩形表示しない
-            if abs(box[2]-box[0]) < 50 or abs(box[3]-box[1])<50:
-                boxes.pop(j)
+            if abs(box[2]-box[0]) > 50 and abs(box[3]-box[1])>50:
+                k.append(j)
+        boxes = (np.array(boxes)[k]).tolist()
         tmp[f"p_bbox{i}"] = boxes
     return tmp
-num=36000
+num=4000
 js = OrderedDict()
 result = impl_ss(num)
 js["pseudo_annotations"] = result
-with open(f"/data/unagi0/masaoka/endoscopy/annotations/pseudo_annotation{int(num//1000)}.json", "w") as f:
+with open(f"/data/unagi0/masaoka/endoscopy/annotations/pseudo_annotations{int(num//1000)}.json", "w") as f:
     json.dump(js, f, indent=2)
