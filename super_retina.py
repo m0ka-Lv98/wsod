@@ -1,26 +1,18 @@
-import torch
-import torch.nn as nn
-import torch.optim as optim
-from modules import *
-import torchvision
-from torchvision import models
-import numpy as np
-from torchvision import transforms
-from torchvision.transforms import Compose
-import transform as transf
-from torch.utils.data import DataLoader
-from utils import bbox_collate, data2target,MixedRandomSampler
-import yaml
-import os
 import json
-import copy
-from PIL import Image
-from dataset import MedicalBboxDataset
-from make_dloader import make_data
+import yaml
 from visdom import Visdom
 import argparse
 import time
 import collections
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.optim as optim
+
+from modules.models import *
+from utils.anchor import make_anchor
+from utils.utils import data2target
+from dataset.make_dloader import make_data
 
 config = yaml.safe_load(open('./config.yaml'))
 parser = argparse.ArgumentParser()
@@ -36,15 +28,14 @@ parser.add_argument('-r', '--resume', type=int, default=0)
 parser.add_argument('-p','--port',type=int,default=3289)
 args = parser.parse_args()
 seed = int(time.time()*100)
-model_name = args.model+f'fully{args.lr}'
-dl_t, dl_v, _, _, _ = make_data(batchsize=args.batchsize,iteration=args.iteration,val=args.val,p_path=0)
+model_name = args.model+f'refinea{args.lr}'
+dl_t, _, _, _, _ = make_data(batchsize=args.batchsize,iteration=args.iteration,val=args.val,p_path=0)
 def main():
     global model_name
     val = args.val
     dataset_means = json.load(open(config['dataset']['mean_file']))
     oicr = resnet18_full(3,pretrained=True)
-    oicr.pre.load_state_dict(torch.load("/data/unagi0/masaoka/wsod/model/oicr/SLV_Retinarms0.1sched1e-05_4.pt"))#SLV_Retina_prepre1e-05_2.pt
-    #oicr.load_state_dict(torch.load("/data/unagi0/masaoka/wsod/model/oicr/SLV_Retina_prepre1e-05_6.pt"),strict=False)
+    oicr.load_state_dict(torch.load("/data/unagi0/masaoka/wsod/model/oicr/SLV_Retinaanchor_slv0.051e-05_6.pt"),strict=False)
     if args.resume > 0:
         oicr.load_state_dict(torch.load(f"/data/unagi0/masaoka/wsod/model/oicr/{model_name}_{val}_{args.resume}.pt"))
     oicr = nn.DataParallel(oicr)
@@ -56,13 +47,15 @@ def main():
         opt.load_state_dict(torch.load(f"/data/unagi0/masaoka/wsod/model/oicr/{model_name}_opt_{val}_{args.resume}.pt"))
         
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(opt, patience=3, verbose=True)
+    #scheduler = optim.lr_scheduler.StepLR(opt, step_size = 2, gamma = 0.1)
     train_loss_list = []
     loss_hist = collections.deque(maxlen=500)
     
     for epoch in range(args.resume,args.epochs):
         for i, data in enumerate(dl_t,1):
             opt.zero_grad()
-            closs,rloss = oicr(data["img"].cuda().float(), data['annot'])
+            closs,rloss = oicr(img=data["img"].cuda().float(), annot=data['p_bboxes'], soft=True)
+            
             loss = closs.mean()+rloss.mean()
             loss.backward()
             
@@ -80,8 +73,8 @@ def main():
             print(f'{i}/{len(dl_t)}, {loss}', end='\r')
         torch.save(oicr.module.state_dict(), f"/data/unagi0/masaoka/wsod/model/oicr/{model_name}_{val}_{epoch+1}.pt")
         torch.save(opt.state_dict(), f"/data/unagi0/masaoka/wsod/model/oicr/{model_name}_opt_{val}_{epoch+1}.pt")
-        scheduler.step(np.mean(loss_hist))
-    
+        #scheduler.step(np.mean(loss_hist))
+        #scheduler.step()
 
 
 if __name__ == "__main__":

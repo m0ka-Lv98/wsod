@@ -1,28 +1,18 @@
-import torch
-import torch.nn as nn
-import torch.optim as optim
-from modules import *
-import torchvision
-from torchvision import models
-import numpy as np
-from torchvision import transforms
-from torchvision.transforms import Compose
-import transform as transf
-from torch.utils.data import DataLoader
-from utils import bbox_collate, data2target,MixedRandomSampler
-import yaml
-import os
 import json
-import copy
-from PIL import Image
-from dataset import MedicalBboxDataset
-from make_dloader import make_data
+import yaml
 from visdom import Visdom
 import argparse
 import time
 import collections
-import torch.utils.model_zoo as model_zoo
-from anchor import make_anchor
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.optim as optim
+
+from modules.models import *
+from utils.anchor import make_anchor
+from utils.utils import data2target
+from dataset.make_dloader import make_data
 
 config = yaml.safe_load(open('./config.yaml'))
 parser = argparse.ArgumentParser()
@@ -30,40 +20,33 @@ parser.add_argument('--train', nargs="*", type=int, default=config['dataset']['t
 parser.add_argument('--val', type=int, default=config['dataset']['val'][0])
 parser.add_argument('-b','--batchsize', type=int, default=config['batchsize'])
 parser.add_argument('-i', '--iteration', type=int, default=config['n_iteration'])
-parser.add_argument('--epochs', type=int, default=6)
+parser.add_argument('--epochs', type=int, default=10)
 parser.add_argument('--lr', type=float, default=1e-4)
 parser.add_argument('--weightdecay', type=float, default=5e-4)
-parser.add_argument('-m', '--model', type=str, default="OICRanchor")
+parser.add_argument('-m', '--model', type=str, default="multi_midnanchor")
 parser.add_argument('-r', '--resume', type=int, default=0)
 parser.add_argument('-p','--port',type=int,default=3289)
 args = parser.parse_args()
 seed = int(time.time()*100)
-model_name = args.model+f'{args.lr}'
+model_name = args.model+f'nosched{args.lr}_{args.val}'
 dl_t, dl_v, _, _, _ = make_data(batchsize=args.batchsize,iteration=args.iteration,val=args.val,p_path=0)
-model_urls = {
-    'resnet18': 'https://download.pytorch.org/models/resnet18-5c106cde.pth',
-    'resnet34': 'https://download.pytorch.org/models/resnet34-333f7ec4.pth',
-    'resnet50': 'https://download.pytorch.org/models/resnet50-19c8e357.pth',
-    'resnet101': 'https://download.pytorch.org/models/resnet101-5d3b4d8f.pth',
-    'resnet152': 'https://download.pytorch.org/models/resnet152-b121ed2d.pth',
-}
-dl_root = "/data/unagi0/masaoka/resnet_model_zoo/"
+
 def main():
     val = args.val
     dataset_means = json.load(open(config['dataset']['mean_file']))
-    oicr = OICR()
-    oicr.load_state_dict(model_zoo.load_url(model_urls['resnet18'], model_dir=dl_root), strict=False)
+    #oicr = OICR()
+    oicr = multi_midn()
     if args.resume > 0:
-        oicr.load_state_dict(torch.load(f"/data/unagi0/masaoka/wsod/model/oicr/{model_name}_{val}_{args.resume}.pt"))
+        oicr.load_state_dict(torch.load(f"/data/unagi0/masaoka/wsod/model/oicr/{model_name}_{args.resume}.pt"))
     oicr = nn.DataParallel(oicr)
     oicr.cuda()
     torch.backends.cudnn.benchmark = True
     #opt = optim.Adam(oicr.parameters(), lr = args.lr, weight_decay=args.weightdecay)
-    opt = optim.RMSprop(oicr.parameters(), lr = args.lr, weight_decay=args.weightdecay,momentum=0.9)
-    if args.resume > 0:
-        opt.load_state_dict(torch.load(f"/data/unagi0/masaoka/wsod/model/oicr/{model_name}_opt_{val}_{args.resume}.pt"))
-    #scheduler = optim.lr_scheduler.StepLR(opt, step_size = 1, gamma = 0.1)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(opt, patience=3, verbose=True)
+    opt = optim.RMSprop(oicr.parameters(), lr = 1e-6, weight_decay=args.weightdecay,momentum=0.9)
+    #if args.resume > 0:
+    #    opt.load_state_dict(torch.load(f"/data/unagi0/masaoka/wsod/model/oicr/{model_name}_opt_{args.resume}.pt"))
+    scheduler = optim.lr_scheduler.StepLR(opt, step_size = 5, gamma = 0.1)
+    #scheduler = optim.lr_scheduler.ReduceLROnPlateau(opt, patience=3, verbose=True)
     train_loss_list = []
     m_list = []
     l1_list = []
@@ -99,7 +82,7 @@ def main():
                     loss_hist.append(float(loss))
                 viz.line(X = np.array([i + epoch*len(dl_t)]),Y = np.array([sum(train_loss_list)/len(train_loss_list)]), 
                                 win=f"{seed}", name='train_loss', update='append',
-                                opts=dict(showlegend=True,title=f"{model_name}_{val}"))
+                                opts=dict(showlegend=True,title=f"{model_name}"))
                 viz.line(X = np.array([i + epoch*len(dl_t)]),Y = np.array([sum(m_list)/len(m_list)]), 
                                 win=f"{seed}", name='m', update='append',
                                 opts=dict(showlegend=True))
@@ -118,10 +101,10 @@ def main():
                 l2_list = []
                 l3_list = []
             print(f'{i}/{len(dl_t)}, {loss}', end='\r')
-        torch.save(oicr.module.state_dict(), f"/data/unagi0/masaoka/wsod/model/oicr/{model_name}_{val}_{epoch+1}.pt")
-        torch.save(opt.state_dict(), f"/data/unagi0/masaoka/wsod/model/oicr/{model_name}_opt_{val}_{epoch+1}.pt")
+        torch.save(oicr.module.state_dict(), f"/data/unagi0/masaoka/wsod/model/oicr/{model_name}_{epoch+1}.pt")
+        torch.save(opt.state_dict(), f"/data/unagi0/masaoka/wsod/model/oicr/{model_name}_opt_{epoch+1}.pt")
         #scheduler.step()
-        scheduler.step(np.mean(loss_hist))
+        #scheduler.step(np.mean(loss_hist))
     
 
 

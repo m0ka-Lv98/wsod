@@ -21,8 +21,8 @@ dataset:
 # input setting
 negative_ratio: 5
 augmentation:
- flip: False
- rotate_flip_shear: True
+ flip: True
+ rotate_flip_shear: False
  gaussnoise: 1.0
  gamma:
  - 0.95
