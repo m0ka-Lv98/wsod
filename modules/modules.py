@@ -17,7 +17,7 @@ from matplotlib import pyplot as plt
 import c_utils
 from numba import jit
 
-config = yaml.safe_load(open('./config.yaml'))
+config = yaml.safe_load(open('/home/mil/masaoka/wsod/config.yaml'))
 model_urls = {
     'resnet18': 'https://download.pytorch.org/models/resnet18-5c106cde.pth',
     'resnet34': 'https://download.pytorch.org/models/resnet34-333f7ec4.pth',
@@ -26,6 +26,28 @@ model_urls = {
     'resnet152': 'https://download.pytorch.org/models/resnet152-b121ed2d.pth',
 }
 dl_root = "/data/unagi0/masaoka/resnet_model_zoo/"
+
+class MIDNFocalLoss(nn.Module):
+    def __init__(self, gamma=2, eps=1e-7,mode='none'):
+        super().__init__()
+        self.gamma = gamma
+        self.alpha = 0.25
+        self.eps = eps
+        self.mode=mode
+
+    def forward(self, input, target):
+        y = target #bs*proposal,4
+        logit = input.clamp(self.eps, 1. - self.eps)
+        loss = -(y * torch.log(logit)+(1-y)*torch.log(1-logit))# cross entropy
+        alpha_factor = torch.ones(target.shape).cuda() * self.alpha
+        alpha_factor = torch.where(torch.eq(target, 1.), alpha_factor, 1. - alpha_factor)
+        focal_weight = torch.where(torch.eq(target, 1.), 1. - logit, logit)
+        focal_weight = alpha_factor * torch.pow(focal_weight, self.gamma)
+        loss = loss*focal_weight
+        if self.mode=="mean":
+            loss = (loss.sum(dim=1)).mean()
+
+        return loss
 
 class ICRFocalLoss(nn.Module):
     def __init__(self, gamma=2, eps=1e-7,mode='none'):
@@ -39,7 +61,7 @@ class ICRFocalLoss(nn.Module):
         
         logit = F.softmax(input,dim=-1) #bs*proposal,4
         logit = logit.clamp(self.eps, 1. - self.eps)
-        loss = -1 * y * torch.log(logit) # cross entropy
+        loss = -y * torch.log(logit) # cross entropy
         loss = loss * ((1 - logit) ** self.gamma) # focal loss
         if self.mode=="mean":
             loss = (loss.sum(dim=1)).mean()
@@ -110,32 +132,38 @@ class vector_extractor(nn.Module):
 class MIDN(nn.Module):
     """input: feature vector, labels
          output: scores per proposal, loss"""
-    def __init__(self):
+    def __init__(self,c_in=512):
         super().__init__()
-        c_in = 512
-        self.layer_c = nn.Linear(c_in, 3)
-        self.layer_d = nn.Linear(c_in, 3)
+        self.c_in = c_in
+        self.c_out = 4
+        self.layer_c = nn.Linear(c_in, self.c_out)
+        self.layer_d = nn.Linear(c_in, self.c_out)
         self.softmax_c = nn.Softmax(dim=2)
         self.softmax_d = nn.Softmax(dim=1)
+        #self.loss = MIDNFocalLoss(gamma=2,mode='mean')#nn.BCELoss()
         self.loss = nn.BCELoss()
         self.aux_loss = nn.BCEWithLogitsLoss()
         self.upper = 1-1e-7
         self.lower = 1e-7
-    def forward(self, inputs, labels, num, aux):
+    def forward(self, inputs, labels, num, aux=None):
         bs, proposal = inputs.shape[0]//num, num
-        x_c = self.layer_c(inputs).view(bs, proposal, -1) #bs, proposal, 3
+        x_c = self.layer_c(inputs).view(bs, proposal, -1) #bs, proposal, c_out
         x_d = self.layer_d(inputs).view(bs, proposal, -1)
         sigma_c = self.softmax_c(x_c)
         sigma_d = self.softmax_d(x_d)
-        x_r = sigma_c * sigma_d #bs, proposal, 3
+        x_r = sigma_c * sigma_d #bs, proposal, c_out
         if not self.training:
             return x_r
-        labels = labels[:,:-1].clone().detach()
-        phi_c = x_r.sum(dim=1) #bs, 3
+        labels = labels[:,:self.c_out].clone().detach()
+        phi_c = x_r.sum(dim=1) #bs, c_out
         phi_c = torch.clamp(phi_c, self.lower,self.upper)
-        loss = self.loss(phi_c, labels) + self.aux_loss(aux,labels)
+        if isinstance(aux,torch.Tensor):
+            loss = self.loss(phi_c, labels) + self.aux_loss(aux,labels)
+        else:
+            loss = self.loss(phi_c, labels)
+
        
-        return  x_r,loss
+        return x_r,loss
         
 
 class ICR(nn.Module):
@@ -144,9 +172,9 @@ class ICR(nn.Module):
                      supervision (label) (bs)
                      ROI proposals
          output: refined proposal scores, loss"""
-    def __init__(self):
+    def __init__(self,c_in=512):
         super().__init__()
-        c_in = 512
+        self.c_in = c_in
         self.I_t = 0.5
         self.fc = nn.Linear(c_in, 4)
         self.softmax = nn.Softmax(dim=2)
@@ -244,12 +272,15 @@ def generate_gt(scores_list,rois_list,labels):
 class MultiScaleROIPool(nn.Module):
     def __init__(self):
         super().__init__()
-        self.m = torchvision.ops.MultiScaleRoIAlign(['feat2', 'feat3','feat4'], 7, 2)
-    def forward(self,x2,x3,x4,rois):
+        self.m = torchvision.ops.MultiScaleRoIAlign(['feat0','feat1','feat2', 'feat3','feat4'], 7, 2)
+    def forward(self,features,rois):
         i = OrderedDict()
-        i['feat2'] = x2
-        i['feat3'] = x3
-        i['feat4'] = x4
+        i['feat0'] = features[0]
+        i['feat1'] = features[1]
+        i['feat2'] = features[2]
+        i['feat3'] = features[3]
+        i['feat4'] = features[4]
+        
         image_size = [(512,512)]
         rois = [r for r in rois]
         output = self.m(i, rois, image_size)
@@ -366,187 +397,6 @@ class Detection(nn.Module):
                 l1_list+=l1_loss
 
         return (c_list+c_list_bg/(bg+1e-7))/(bs+1e-7)+l1_list
-                           
-
-def multi_oicr(num_classes=3, pretrained=False, **kwargs):
-    """Constructs a ResNet-18 model.
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-    """
-    model = Multi_OICR(num_classes, BasicBlock, [2, 2, 2, 2], **kwargs)
-    if pretrained:
-        model.load_state_dict(model_zoo.load_url(model_urls['resnet18'], model_dir=dl_root), strict=False)
-    return model
-
-def multi_midn(num_classes=3, pretrained=False, **kwargs):
-    """Constructs a ResNet-18 model.
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-    """
-    model = Multi_MIDN(num_classes, BasicBlock, [2, 2, 2, 2], **kwargs)
-    if pretrained:
-        model.load_state_dict(model_zoo.load_url(model_urls['resnet18'], model_dir=dl_root), strict=False)
-    return model
-
-class Multi_MIDN(nn.Module):
-    def __init__(self, num_classes, block, layers):
-        super().__init__()
-        self.inplanes = 64
-        self.midn = MIDN()
-        num_classes = 3
-        self.mat = nn.Parameter(torch.zeros((512,512))).requires_grad_(False)
-        self.zero = nn.Parameter(torch.tensor([0.])).requires_grad_(False)
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
-        self.bn1 = nn.BatchNorm2d(64)
-        self.relu = nn.ReLU(inplace=True)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(block, 64, layers[0])
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
-
-        if block == BasicBlock:
-            fpn_sizes = [self.layer2[layers[1] - 1].conv2.out_channels, self.layer3[layers[2] - 1].conv2.out_channels,
-                         self.layer4[layers[3] - 1].conv2.out_channels]
-        elif block == Bottleneck:
-            fpn_sizes = [self.layer2[layers[1] - 1].conv3.out_channels, self.layer3[layers[2] - 1].conv3.out_channels,
-                         self.layer4[layers[3] - 1].conv3.out_channels]
-        else:
-            raise ValueError(f"Block type {block} not understood")
-        self.fpn = PyramidFeatures(128, 256, 512)
-        
-        self.feature_vector = nn.Sequential(ASPP([1,2]),
-                                            nn.Flatten(),
-                                            nn.Linear(256*(5), 2048),
-                                            nn.ReLU(inplace=True),
-                                            nn.BatchNorm1d(2048),
-                                            nn.Linear(2048, 512),
-                                            nn.BatchNorm1d(512),
-                                            nn.ReLU(inplace=True))
-        self.multi_scale_roi_pool = MultiScaleROIPool()
-        self.aux = nn.Sequential(ASPP([1,2,3]),
-                                nn.Flatten(),
-                                nn.Linear(512*(14), 3))
-    
-    def _make_layer(self, block, planes, blocks, stride=1):
-        downsample = None
-        if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(
-                nn.Conv2d(self.inplanes, planes * block.expansion,
-                          kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(planes * block.expansion),
-            )
-
-        layers = [block(self.inplanes, planes, stride, downsample)]
-        self.inplanes = planes * block.expansion
-        for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes))
-
-        return nn.Sequential(*layers)
-
-    def freeze_bn(self):
-        '''Freeze BatchNorm layers.'''
-        for layer in self.modules():
-            if isinstance(layer, nn.BatchNorm2d):
-                layer.eval()
-
-    def forward(self, inputs, labels, rois, num):
-        if self.training:
-            labels = labels.squeeze()
-            rois = rois.squeeze()
-            x = self.conv1(inputs)
-            x = self.bn1(x)
-            x = self.relu(x)
-            x = self.maxpool(x)
-
-            f1 = self.layer1(x)
-            f2 = self.layer2(f1)
-            f3 = self.layer3(f2)
-            f4 = self.layer4(f3)
-            aux = self.aux(f4)
-
-            
-            features = self.fpn([f2, f3, f4])
-            f = self.multi_scale_roi_pool(features[0],features[1],features[2], rois)
-            v = self.feature_vector(f) 
-            x, midn_loss = self.midn(v, labels, num, aux)
-            loss1,loss2,loss3 = torch.tensor(0).cuda().float(),torch.tensor(0).cuda().float(),torch.tensor(0).cuda().float()
-            loss = midn_loss + (loss1 + loss2 + loss3)
-            return x, loss.unsqueeze(0),midn_loss.unsqueeze(0),loss1.unsqueeze(0),loss2.unsqueeze(0),loss3.unsqueeze(0)
-        else:
-            rois = rois.squeeze().unsqueeze(0)
-            num = rois.shape[1]
-            x = self.conv1(inputs)
-            x = self.bn1(x)
-            x = self.relu(x)
-            x = self.maxpool(x)
-
-            f1 = self.layer1(x)
-            f2 = self.layer2(f1)
-            f3 = self.layer3(f2)
-            f4 = self.layer4(f3)
-
-            
-            features = self.fpn([f2, f3, f4])
-            f = self.multi_scale_roi_pool(features[0],features[1],features[2], rois)
-            v = self.feature_vector(f) 
-            x = self.midn(v, 0, num, 0)
-            x = x/x.max()
-            x, rois = x[0], rois[0].cuda()
-            rois = rois[torch.max(x,1)[1]!=3]
-            x = x[torch.max(x,1)[1]!=3]
-            if x.size() == torch.Size([0,4]):
-                return torch.tensor([]),torch.tensor([]),torch.tensor([])
-            classes = torch.max(x,1)[1] #proposals
-            scores = torch.max(x,1)[0] #proposals
-            index = nms(rois,scores,0.5)
-            scores = scores[index]
-            labels = classes[index]
-            bboxes = rois[index]
-            return scores, labels, bboxes
-
-    def generate_gt_slv(self,x1,x2,x3,rois_list,labels_list):
-        bs,proposal,_ = x1.shape
-        gt_list = []
-        for batch in range(bs):
-            mat = self.mat.clone()
-            label = torch.max(labels_list[batch],0)[1]
-            if label == 3:
-                gt_list.append(torch.empty(0,5))
-                continue
-            rois = rois_list[batch]
-            score_list = []
-            
-            for score in [x1[batch],x2[batch],x3[batch]]:
-                score_list.append(score[:,label])
-            score = (score_list[0]+score_list[1]+score_list[2])/3
-            index = nms(rois,score,0.5)
-            rois = rois[index]
-            score = score[index]
-            for r in range(len(rois)):
-                mat[int(rois[r,1]):int(rois[r,3]),int(rois[r,0]):int(rois[r,2])] += score[r]
-            mat = mat/(mat.max()+1e-8)
-            mat = torch.where(mat>0.5,mat,self.zero).cpu().detach().numpy()
-            heatmap = np.uint8(255*mat)
-            LAB = cv2.connectedComponentsWithStats(heatmap)
-            n = LAB[0] - 1
-            data = np.delete(LAB[2], 0, 0)
-            boxes = torch.empty(0,5).cuda()
-            for i in range(n):
-                X0 = float(int(data[i][0]))
-                Y0 = float(int(data[i][1]))
-                X1 = float(int(data[i][0] + data[i][2]))
-                Y1 = float(int(data[i][1] + data[i][3]))
-                if abs(X0-X1) < 50 or abs(Y0-Y1) < 50:
-                    continue
-                if boxes.shape[0] == 0:
-                    boxes = torch.tensor([[X0,Y0,X1,Y1,label]]).cuda()
-                else:
-                    boxes = torch.cat((boxes, torch.tensor([[X0,Y0,X1,Y1,label]]).cuda()), dim=0)
-            gt_list.append(boxes.clone().detach())
-        return gt_list
-
-
 
 def generate_gt_retina(scores_list,rois_list,labels):
     #scores:bs,proposal,4; rois_list:bs,n,4; labels:bs,4
@@ -574,11 +424,10 @@ def generate_gt_retina(scores_list,rois_list,labels):
             else:
                 break
         rois = rois[:i]
-        l = torch.ones((rois.shape[0],1))*label
+        l = torch.ones((rois.shape[0],1)).cuda()*label
         rois = torch.cat([rois,l.cuda()],dim=1)
-        scores = scores[:i]
-        gt = torch.cat([rois,scores.unsqueeze(1)],dim=1)
-        gt_list.append(gt.clone().detach())
+        print(rois,rois.shape)
+        gt_list.append(rois.clone().detach())
     return gt_list
 
 @jit

@@ -4,10 +4,9 @@ import numpy as np
 import math
 import yaml
 from .config import cfg
-from .generate_anchors import generate_anchors, generate_anchors_all_pyramids
-from .bbox_transform import bbox_transform_inv, clip_boxes, clip_boxes_batch
 from torchvision.ops import nms
 import time
+from utils.utils import Anchors,BBoxTransform,ClipBoxes
 
 import pdb
 
@@ -26,8 +25,9 @@ class _ProposalLayer_FPN(nn.Module):
         self._fpn_scales = np.array(cfg.FPN_ANCHOR_SCALES)
         self._fpn_feature_strides = np.array(cfg.FPN_FEAT_STRIDES)
         self._fpn_anchor_stride = cfg.FPN_ANCHOR_STRIDE
-        # self._anchors = torch.from_numpy(generate_anchors_all_pyramids(self._fpn_scales, ratios, self._fpn_feature_strides, fpn_anchor_stride))
-        # self._num_anchors = self._anchors.size(0)
+        self.anchors = Anchors()
+        self.regressBoxes = BBoxTransform()
+        self.clip = ClipBoxes()
 
     def forward(self, input):
 
@@ -60,36 +60,50 @@ class _ProposalLayer_FPN(nn.Module):
 
         batch_size = bbox_deltas.size(0)
 
-        anchors = torch.from_numpy(generate_anchors_all_pyramids(self._fpn_scales, self._anchor_ratios, 
-                feat_shapes, self._fpn_feature_strides, self._fpn_anchor_stride)).type_as(scores)
+        anchors = self.anchors(torch.zeros((1,1,512,512)))
+        anchors = anchors.squeeze()
         num_anchors = anchors.size(0)
 
         anchors = anchors.view(1, num_anchors, 4).expand(batch_size, num_anchors, 4)
-
+        
         # Convert anchors into proposals via bbox transformations
-        proposals = bbox_transform_inv(anchors, bbox_deltas, batch_size)
+        proposals = self.regressBoxes(anchors, bbox_deltas)
+        
 
         # 2. clip predicted boxes to image
-        proposals = clip_boxes(proposals, im_info, batch_size)
-        # keep_idx = self._filter_boxes(proposals, min_size).squeeze().long().nonzero().squeeze()
-                
+        proposals = self.clip(proposals, torch.zeros((1,1,512,512)))
+        
+        keep_idx = torch.nonzero(self._filter_boxes(proposals, 50),as_tuple=False)
+        #print(keep_idx)
+        #print(keep_idx.shape,proposals.shape,scores.shape)
         scores_keep = scores
         proposals_keep = proposals
+
 
         _, order = torch.sort(scores_keep, 1, True)
 
         output = scores.new(batch_size, post_nms_topN, 5).zero_()
         for i in range(batch_size):
             # # 3. remove predicted boxes with either height or width < threshold
-            # # (NOTE: convert min_size to input image scale stored in im_info[2])
             proposals_single = proposals_keep[i]
+            _scores_single = scores_keep[i]
+
+            
             scores_single = scores_keep[i]
+            
+            #k = keep_idx[keep_idx[:,0]==i,1]
+            #scores_single = torch.zeros(_scores_single.shape).cuda().float()
+            #scores_single[k] = _scores_single[k]
+
+
+            
+
 
             # # 4. sort all (proposal, score) pairs by score from highest to lowest
             # # 5. take top pre_nms_topN (e.g. 6000)
             order_single = order[i]
 
-            if pre_nms_topN > 0 and pre_nms_topN < scores_keep.numel():
+            if pre_nms_topN > 0 and pre_nms_topN < scores_single.numel():
                 order_single = order_single[:pre_nms_topN]
 
             proposals_single = proposals_single[order_single, :]
@@ -99,7 +113,6 @@ class _ProposalLayer_FPN(nn.Module):
             # 7. take after_nms_topN (e.g. 300)
             # 8. return the top proposals (-> RoIs top)
             s = time.time()
-            #print(proposals_single.shape,scores_single.shape)
             keep_idx_i = nms(proposals_single, scores_single.squeeze(), 0.7)
             e = time.time()
             #print(f'nms {e-s}')
@@ -114,6 +127,7 @@ class _ProposalLayer_FPN(nn.Module):
             num_proposal = proposals_single.size(0)
             output[i,:,0] = i
             output[i,:num_proposal,1:] = proposals_single
+
 
         return output
 

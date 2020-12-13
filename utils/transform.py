@@ -98,8 +98,8 @@ class Augmentation:
 
 class Normalize:
     def __init__(self, mean, std):
-        self.mean = mean
-        self.std = std
+        self.mean = np.array([0.485, 0.456, 0.406])*255#mean
+        self.std = np.array([0.229, 0.224, 0.225])*255#std
     
     def __call__(self, data):
         data = copy.copy(data)
@@ -108,8 +108,8 @@ class Normalize:
 
 class UnNormalize:
     def __init__(self, mean, std):
-        self.mean = mean
-        self.std = std
+        self.mean = np.array([0.485, 0.456, 0.406])*255#mean
+        self.std = np.array([0.229, 0.224, 0.225])*255#std
     
     def __call__(self, data):
         data = copy.copy(data)

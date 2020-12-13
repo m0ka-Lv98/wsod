@@ -28,7 +28,7 @@ parser.add_argument('-r', '--resume', type=int, default=0)
 parser.add_argument('-p','--port',type=int,default=3289)
 args = parser.parse_args()
 seed = int(time.time()*100)
-model_name = args.model+f'{args.lr}_{args.val}'
+model_name = args.model+f'4{args.lr}_{args.val}'
 
 def main():
     global model_name

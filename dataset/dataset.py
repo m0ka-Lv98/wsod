@@ -22,18 +22,24 @@ class MedicalBboxDataset(Dataset):
         self.p_path = pseudo_path
         self.p_list = np.empty((0,5))
 
-        '''if isinstance(pseudo_path,str):
-            self.p_list=[]
-            for i in range(0,40,4):
-                pseudo_path = f"/data/unagi0/masaoka/endoscopy/annotations/pseudo_annotations{i}.json"
-                with open(pseudo_path, "r") as json_open:
-                    self.p_file = json.load(json_open)
-                    self.p_list.append(self.p_file)'''
-
         if isinstance(pseudo_path,str):
+            self.p_list=[]
+            for i in range(0,41,5):
+                pseudo_path = f"/data/unagi0/masaoka/endoscopy/annotations/pseudo_annotations{i}.json"
+                try:
+                    with open(pseudo_path, "r") as json_open:
+                        self.p_file = json.load(json_open)
+                        self.p_list.append(self.p_file)
+                except:
+                    pseudo_path = f"/data/unagi0/masaoka/endoscopy/annotations/pseudo_annotation{i}.json"
+                    with open(pseudo_path, "r") as json_open:
+                        self.p_file = json.load(json_open)
+                        self.p_list.append(self.p_file)
+
+        '''if isinstance(pseudo_path,str):
             pseudo_path = f"/data/unagi0/masaoka/endoscopy/annotations/pslabels.json"
             with open(pseudo_path, "r") as json_open:
-                self.p_file = json.load(json_open)
+                self.p_file = json.load(json_open)'''
             
 
     def load_classes(self):
@@ -120,13 +126,11 @@ class MedicalBboxDataset(Dataset):
         bboxes = np.array(bboxes, dtype=np.float32).reshape(-1, 4)
         bboxes[:, 2:] += bboxes[:, :2]  # xywh -> xyxy
         labels = np.array(labels, dtype=np.int)
-        try:
-            p_bboxes = self.p_file[f"p_bbox{self.imgids[i]}"]
-        except:
-            p_bboxes = []
-        '''if isinstance(self.p_path,str):
-            x = int(i//4000)
-            p_bboxes = self.p_list[x]['pseudo_annotations'][f"p_bbox{i}"] #[f"p_bbox{imgid}"]'''
+        p_bboxes = []
+        if isinstance(self.p_path,str):
+            if annotations.shape != (0,5):
+                x = int(imgid//5000)
+                p_bboxes = self.p_list[x]['pseudo_annotations'][f"p_bbox{imgid}"] #[f"p_bbox{imgid}"]'''
             
  
         

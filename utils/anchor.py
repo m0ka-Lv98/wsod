@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import torch
-PYRAMID_LEVEL = [4, 5, 6]
+PYRAMID_LEVEL = [4,5,6,7]
 
 TEST_SCALE = np.array([2 ** 0, 2 ** (1.0 / 3.0), 2 ** (2.0 / 3.0)])
 TEST_RATIO = np.array([0.5, 1, 2])
