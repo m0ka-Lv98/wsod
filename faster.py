@@ -15,6 +15,7 @@ from modules.models import *
 from utils.anchor import make_anchor
 from utils.utils import data2target
 from dataset.faster_dloader import make_data
+from center_loss import CenterLoss
 
 #torch.autograd.set_detect_anomaly(True)
 config = yaml.safe_load(open('./config.yaml'))
@@ -23,7 +24,7 @@ parser.add_argument('--train', nargs="*", type=int, default=config['dataset']['t
 parser.add_argument('--val', type=int, default=config['dataset']['val'][0])
 parser.add_argument('-b','--batchsize', type=int, default=config['batchsize'])
 parser.add_argument('-i', '--iteration', type=int, default=config['n_iteration'])
-parser.add_argument('-e', '--epochs', type=int, default=6)
+parser.add_argument('-e', '--epochs', type=int, default=10)
 parser.add_argument('--lr', type=float, default=1e-5)
 parser.add_argument('--weightdecay', type=float, default=5e-4)
 parser.add_argument('-m', '--model', type=str, default="F-RCNN")
@@ -32,7 +33,7 @@ parser.add_argument('-p','--port',type=int,default=3289)
 parser.add_argument('-g','--gpu',type=str,default='0')
 args = parser.parse_args()
 seed = int(time.time()*100)
-model_name = args.model+f'imagewicrbroad{args.lr}_{args.val}'
+model_name = args.model+f'rms_2{args.lr}_{args.val}'
 
 os.environ['CUDA_VISIBLE_DEVICES']=args.gpu
 
@@ -49,11 +50,15 @@ def main():
     #opt = optim.Adam(oicr.parameters(), lr = args.lr, weight_decay=args.weightdecay)
     #opt = optim.SGD(oicr.parameters(), lr = args.lr, weight_decay=args.weightdecay,momentum=0.9)
     opt = optim.RMSprop(oicr.parameters(), lr = args.lr, weight_decay=args.weightdecay,momentum=0.9)
+    opt_mil = optim.RMSprop(oicr.module.mil(), lr = args.lr, weight_decay=args.weightdecay,momentum=0.9)
+    opt_others = optim.RMSprop(oicr.module.others(), lr = args.lr, weight_decay=args.weightdecay,momentum=0.9)
     #if args.resume > 0:
     #    opt.load_state_dict(torch.load(f"/data/unagi0/masaoka/wsod/model/oicr/{model_name}_opt{args.resume}.pt"))
     #scheduler = optim.lr_scheduler.ReduceLROnPlateau(opt, 'min', patience=1, verbose=True)
-    scheduler = optim.lr_scheduler.StepLR(opt, step_size = 1, gamma = 0.1)
-    #scheduler = optim.lr_scheduler.CosineAnnealingLR(opt, T_max=3, eta_min=0.001)
+    scheduler = optim.lr_scheduler.StepLR(opt, step_size = 1, gamma = 0.5)
+    scheduler_mil = optim.lr_scheduler.StepLR(opt_mil, step_size = 1, gamma = 0.5)
+    scheduler_others_0 = optim.lr_scheduler.StepLR(opt_mil, step_size = 1, gamma = 5)
+    scheduler_others_1 = optim.lr_scheduler.StepLR(opt_mil, step_size = 1, gamma = 0.5)
     train_loss_list = []
     m_list = []
     l1_list = []
@@ -61,22 +66,21 @@ def main():
     l3_list = []
     lf_list = []
     lr_list = []
+    lc_list = []
     loss_hist = collections.deque(maxlen=500)
-    p_box = make_anchor()
-    dl_t, _, _, _, _ = make_data(batchsize=args.batchsize,iteration=args.iteration,val=args.val)
-    for epoch in range(args.resume,args.epochs):
-        if epoch%2 == 0:
-            dl_t, _, _, _, _ = make_data(batchsize=args.batchsize,iteration=args.iteration,val=args.val)
+    #dl_t, _, _, _, _ = make_data(batchsize=args.batchsize,iteration=args.iteration,val=args.val)
+    for epoch in range(args.resume,args.epochs):    
+        dl_t, _, _, _, _ = make_data(batchsize=args.batchsize,iteration=args.iteration,val=args.val)
         for i, data in enumerate(dl_t,1):
             opt.zero_grad()
+            opt_mil.zero_grad()
+            opt_others.zero_grad()
             labels, n, t, v, u= data2target(data)
             labels = labels.cuda().float() # bs, num_class
-            rois = [p_box.cuda().float() for _ in range(labels.shape[0])]
-            n = p_box.shape[0]
-            rois = torch.stack(rois, dim=0) #bs, n, 4
             output, loss,m,l1,l2,l3,lf,lr = oicr(data["img"].cuda().float(), labels)
-            lf = lf*min(1,epoch+(i/len(dl_t)))
-            lr = lr*min(1,epoch+(i/len(dl_t)))
+            
+            lf = lf/2#*min(1,(epoch+(i/len(dl_t))))
+            lr = lr/2#*min(1,(epoch+(i/len(dl_t))**2))
             loss = m+l1+l2+l3+lf+lr
             loss = loss.mean()
             loss.backward()
@@ -93,6 +97,8 @@ def main():
             l3_list.append(l3.cpu().data.numpy())
             lf_list.append(lf.cpu().data.numpy())
             lr_list.append(lr.cpu().data.numpy())
+            #opt_mil.step()
+            #opt_others.step()
             opt.step()
             train_loss_list.append(loss.cpu().data.numpy())
             if i%10==0:
@@ -119,6 +125,7 @@ def main():
                 viz.line(X = np.array([i + epoch*len(dl_t)]),Y = np.array([sum(lr_list)/len(lr_list)]), 
                                 win=f"{seed}", name='lr', update='append',
                                 opts=dict(showlegend=True))
+                
                 train_loss_list = []
                 m_list = []
                 l1_list = []
@@ -128,13 +135,12 @@ def main():
                 lr_list = []
             print(f'{i}/{len(dl_t)}, {loss}', end='\r')
         torch.save(oicr.module.state_dict(), f"/data/unagi0/masaoka/wsod/model/oicr/{model_name}_{epoch+1}.pt")
-        torch.save(opt.state_dict(), f"/data/unagi0/masaoka/wsod/model/oicr/{model_name}_opt{epoch+1}.pt")
-        #scheduler.step(np.mean(loss_hist))
-        if epoch>1:
-            scheduler.step()
-        #scheduler.step()
-        #if epoch ==1:
-        #    opt = optim.RMSprop(oicr.parameters(), lr = 1e-4, weight_decay=args.weightdecay,momentum=0.9)
+        #scheduler_mil.step()
+        scheduler.step()
+        """if epoch==0:
+            scheduler_others_0.step()
+        else:
+            scheduler_others_1.step()"""
 
 
 if __name__ == "__main__":

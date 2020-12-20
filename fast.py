@@ -32,7 +32,7 @@ parser.add_argument('-p','--port',type=int,default=3289)
 parser.add_argument('-g','--gpu',type=str,default='0')
 args = parser.parse_args()
 seed = int(time.time()*100)
-model_name = args.model+f'anchor{args.lr}_{args.val}'
+model_name = args.model+f'{args.lr}_{args.val}'
 
 os.environ['CUDA_VISIBLE_DEVICES']=args.gpu
 
@@ -51,7 +51,7 @@ def main():
     if args.resume > 0:
         opt.load_state_dict(torch.load(f"/data/unagi0/masaoka/wsod/model/oicr/{model_name}_opt{args.resume}.pt"))
     #scheduler = optim.lr_scheduler.ReduceLROnPlateau(opt, 'min', patience=1, verbose=True)
-    scheduler = optim.lr_scheduler.StepLR(opt, step_size = 1, gamma = 0.1)
+    scheduler = optim.lr_scheduler.StepLR(opt, step_size = 1, gamma = 0.5)
     #scheduler = optim.lr_scheduler.CosineAnnealingLR(opt, T_max=3, eta_min=0.001)
     train_loss_list = []
     m_list = []
@@ -61,10 +61,9 @@ def main():
     lf_list = []
     loss_hist = collections.deque(maxlen=500)
     box = make_anchor()
-    dl_t, _, _, _, _ = make_data(batchsize=args.batchsize,iteration=args.iteration,val=args.val)
+    #dl_t, _, _, _, _ = make_data(batchsize=args.batchsize,iteration=args.iteration,val=args.val)
     for epoch in range(args.resume,args.epochs):
-        #if epoch%2 == 0:
-        #    dl_t, _, _, _, _ = make_data(batchsize=args.batchsize,iteration=args.iteration,val=args.val)
+        dl_t, _, _, _, _ = make_data(batchsize=args.batchsize,iteration=args.iteration,val=args.val)
         for i, data in enumerate(dl_t,1):
             opt.zero_grad()
             labels, n, t, v, u= data2target(data)
@@ -75,10 +74,12 @@ def main():
                     p_list.append(box)
                 else:
                     p_list.append(r)
+            
 
             rois = [r.cuda().float() for r in p_list]
             n = min(list(map(lambda x: x.shape[0], rois)))
             n = min(n,2000)
+            print(n)
             for ind, tensor in enumerate(rois):
                 rois[ind] = rois[ind][:n,:]
             rois = torch.stack(rois, dim=0)
@@ -132,9 +133,9 @@ def main():
         torch.save(oicr.module.state_dict(), f"/data/unagi0/masaoka/wsod/model/oicr/{model_name}_{epoch+1}.pt")
         torch.save(opt.state_dict(), f"/data/unagi0/masaoka/wsod/model/oicr/{model_name}_opt{epoch+1}.pt")
         #scheduler.step(np.mean(loss_hist))
-        if epoch>0:
-            scheduler.step()
-        #scheduler.step()
+        #if epoch>0:
+        #    scheduler.step()
+        scheduler.step()
         #if epoch ==1:
         #    opt = optim.RMSprop(oicr.parameters(), lr = 1e-4, weight_decay=args.weightdecay,momentum=0.9)
 

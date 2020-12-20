@@ -5,7 +5,7 @@ from PIL import Image
 import numpy as np
 from pycocotools.coco import COCO
 from torch.utils.data import Dataset
-
+from functools import lru_cache
 
 class MedicalBboxDataset(Dataset):
     def __init__(self, annotation, data_path, pseudo_path=None, transform=None):

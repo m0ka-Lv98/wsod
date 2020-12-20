@@ -46,11 +46,11 @@ def make_data(batchsize = None, iteration = None, train = None, val = None, p_pa
     train_ulcer = train_all.ulcer() 
 
     generator = torch.Generator()
-    generator.manual_seed(0)
+    generator.manual_seed(int(time.time())%1000000007)
     sampler = MixedRandomSampler(
         [train_normal,train_torose,train_vascular,train_ulcer],
         iteration * batchsize,
-        ratio=[20,20,20,1],
+        ratio=[20,20,20,20],
         #ratio=[len(train_normal),len(train_torose),len(train_vascular),len(train_ulcer)],
         generator=generator)
     batch_sampler = torch.utils.data.sampler.BatchSampler(sampler, batchsize, drop_last=False)
@@ -65,6 +65,7 @@ def make_data(batchsize = None, iteration = None, train = None, val = None, p_pa
     
     #test dataの取得
     transform = Compose([
+        #transf.Augmentation(config['augmentation']),
         transf.ToFixedSize([config['inputsize']] * 2),  # inputsize x inputsizeの画像に変換
         transf.Normalize(dataset_means['mean'], dataset_means['std']),
         transf.HWCToCHW()

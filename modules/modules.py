@@ -275,16 +275,20 @@ class MultiScaleROIPool(nn.Module):
         self.m = torchvision.ops.MultiScaleRoIAlign(['feat0','feat1','feat2', 'feat3','feat4'], 7, 2)
     def forward(self,features,rois):
         i = OrderedDict()
-        i['feat0'] = features[0]
-        i['feat1'] = features[1]
-        i['feat2'] = features[2]
-        i['feat3'] = features[3]
-        i['feat4'] = features[4]
-        
+        bs = rois.shape[0]
         image_size = [(512,512)]
-        rois = [r for r in rois]
-        output = self.m(i, rois, image_size)
-        return output
+        outputs = []
+        for k in range(bs):
+            i['feat0'] = features[0][k:k+1]
+            i['feat1'] = features[1][k:k+1]
+            i['feat2'] = features[2][k:k+1]
+            i['feat3'] = features[3][k:k+1]
+            i['feat4'] = features[4][k:k+1]
+            r = rois[k]
+            
+            outputs.append(self.m(i, [r], image_size))
+        print((torch.cat(outputs,0)).shape)
+        return torch.cat(outputs,0)
 
 class fmap_extractor(nn.Module):
     """input: images, proposals

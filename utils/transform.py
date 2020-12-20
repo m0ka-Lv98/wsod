@@ -75,6 +75,7 @@ class Augmentation:
         self.seq = iaa.Sequential(seq)
     
     def __call__(self, data):
+        ia.seed(int(time.time()*10000)%1000000007)
         data = copy.copy(data)
         seq = self.seq.to_deterministic()
         image = data['img']
@@ -84,12 +85,14 @@ class Augmentation:
             image, bboxes = seq(image=image, bounding_boxes=bboxes)
             #bboxes = bboxes.clip_out_of_image()
             data['p_bboxes'][:,:4] = BoundingBoxesOnImage.to_xyxy_array(bboxes)
+            #print('fast')
                
         else:
             bboxes = BoundingBoxesOnImage.from_xyxy_array(data['annot'][:,:-1], shape=image.shape)
             image, bboxes = seq(image=image, bounding_boxes=bboxes)
             bboxes = bboxes.clip_out_of_image()
             data['annot'][:,:-1] = BoundingBoxesOnImage.to_xyxy_array(bboxes)
+            #print('faster')
         data['img'] = image
         
 
@@ -98,8 +101,8 @@ class Augmentation:
 
 class Normalize:
     def __init__(self, mean, std):
-        self.mean = np.array([0.485, 0.456, 0.406])*255#mean
-        self.std = np.array([0.229, 0.224, 0.225])*255#std
+        self.mean = mean
+        self.std = std
     
     def __call__(self, data):
         data = copy.copy(data)
@@ -108,8 +111,8 @@ class Normalize:
 
 class UnNormalize:
     def __init__(self, mean, std):
-        self.mean = np.array([0.485, 0.456, 0.406])*255#mean
-        self.std = np.array([0.229, 0.224, 0.225])*255#std
+        self.mean = mean
+        self.std = std
     
     def __call__(self, data):
         data = copy.copy(data)
